@@ -1,10 +1,10 @@
-# ZK-JIT Liquidity Hook
+# AetherPool
 
 **Privacy-Preserving Multi-LP Just-In-Time Liquidity for Uniswap v4**
 
 ## Overview
 
-The ZK-JIT Liquidity Hook enables multiple liquidity providers to coordinate Just-In-Time (JIT) liquidity operations while keeping their trading strategies completely private through Fully Homomorphic Encryption (FHE). This hook solves key limitations in current JIT systems by introducing multi-LP coordination, privacy-preserving strategy parameters, and automated risk management.
+The AetherPool enables multiple liquidity providers to coordinate Just-In-Time (JIT) liquidity operations while keeping their trading strategies completely private through Fully Homomorphic Encryption (FHE). This hook solves key limitations in current JIT systems by introducing multi-LP coordination, privacy-preserving strategy parameters, and automated risk management.
 
 ## Problem Statement
 
