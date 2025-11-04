@@ -549,7 +549,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
         // Execute batch hedging
         try hook.batchHedgeProfits(pools, hedgePercentages) {
             console.log("Batch hedging executed successfully");
-            
+
             uint256 userBalance0After = currency0.balanceOf(LP1);
             assertGt(userBalance0After, userBalance0Before, "Should receive hedged tokens");
 
