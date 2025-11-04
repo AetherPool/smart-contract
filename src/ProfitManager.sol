@@ -5,6 +5,7 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
 
 /**
  * @title ProfitManager
@@ -176,15 +177,9 @@ contract ProfitManager {
 
         // Create new position through position manager
         // Note: In production, add proper interface call
-        // tokenId = ILPPositionManager(positionManager).depositLiquidity(
-        //     poolKey,
-        //     tickLower,
-        //     tickUpper,
-        //     liquidityFromProfits,
-        //     uint128(profit0),
-        //     uint128(profit1),
-        //     msg.sender
-        // );
+        tokenId = ILPPositionManager(positionManager).depositLiquidity(
+            poolKey, tickLower, tickUpper, liquidityFromProfits, uint128(profit0), uint128(profit1), msg.sender
+        );
 
         emit ProfitCompounded(msg.sender, poolId, profit0, profit1, tokenId);
 

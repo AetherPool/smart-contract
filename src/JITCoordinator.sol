@@ -8,6 +8,10 @@ import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 
+import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
+import {IProfitManager} from "./interfaces/IProfitManager.sol";
+import {IFHEConfigManager} from "./interfaces/IFHEConfigManager.sol";
+
 /**
  * @title JITCoordinator
  * @notice Coordinates multi-LP Just-In-Time liquidity operations
@@ -141,22 +145,14 @@ contract JITCoordinator {
 
             if (isActive) {
                 // Check for overlapping positions
-                // bool hasOverlap = ILPPositionManager(positionManager).hasOverlappingPosition(
-                //     poolId,
-                //     lp,
-                //     currentTick,
-                //     TICK_RANGE
-                // );
-                bool hasOverlap = true; // Demo
+                bool hasOverlap =
+                    ILPPositionManager(positionManager).hasOverlappingPosition(poolId, lp, currentTick, TICK_RANGE);
+                // bool hasOverlap = true; // Demo
 
                 if (hasOverlap) {
                     // Check if swap meets threshold
-                    // bool meetsThreshold = IFHEConfigManager(configManager).meetsThreshold(
-                    //     key,
-                    //     lp,
-                    //     swapAmount
-                    // );
-                    bool meetsThreshold = swapAmount > 1000; // Demo
+                    bool meetsThreshold = IFHEConfigManager(configManager).meetsThreshold(key, lp, swapAmount);
+                    // bool meetsThreshold = swapAmount > 1000; // Demo
 
                     if (meetsThreshold) {
                         tempEligibleLPs[eligibleCount] = lp;
@@ -259,10 +255,10 @@ contract JITCoordinator {
             uint256 bonusProfit1 = contribution / 30;
 
             // Accrue profits through profit manager
-            // IProfitManager(profitManager).accrueProfit(key, lp, bonusProfit0, bonusProfit1);
+            IProfitManager(profitManager).accrueProfit(key, lp, bonusProfit0, bonusProfit1);
 
             // Auto-hedge if enabled
-            // IProfitManager(profitManager).autoHedgeProfits(key, lp);
+            IProfitManager(profitManager).autoHedgeProfits(key, lp);
         }
 
         emit JITRemoved(swapId, poolId);
@@ -315,13 +311,13 @@ contract JITCoordinator {
                 uint256 initialProfit1 = contributions[i] / 20;
 
                 // Accrue profits through profit manager
-                // IProfitManager(profitManager).accrueProfit(key, lps[i], initialProfit0, initialProfit1);
+                IProfitManager(profitManager).accrueProfit(key, lps[i], initialProfit0, initialProfit1);
 
                 // Auto-hedge if enabled
-                // bool autoHedgeEnabled = IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lps[i]);
-                // if (autoHedgeEnabled) {
-                //     IProfitManager(profitManager).autoHedgeProfits(key, lps[i]);
-                // }
+                bool autoHedgeEnabled = IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lps[i]);
+                if (autoHedgeEnabled) {
+                    IProfitManager(profitManager).autoHedgeProfits(key, lps[i]);
+                }
             }
 
             emit JITExecuted(swapId, poolId, totalLiquidity);
@@ -337,8 +333,8 @@ contract JITCoordinator {
      */
     function _calculateLPContribution(PoolId poolId, address lp, uint128 swapAmount) private view returns (uint128) {
         // Get LP's total liquidity from position manager
-        // uint128 totalLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
-        uint128 totalLiquidity = 10000; // Demo
+        uint128 totalLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
+        // uint128 totalLiquidity = 10000; // Demo
 
         // Calculate contribution based on swap size and LP capacity
         uint128 maxContribution = swapAmount / 10; // Max 10% of swap
