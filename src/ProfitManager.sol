@@ -19,7 +19,7 @@ contract ProfitManager {
 
     mapping(PoolId => mapping(address => uint256)) public lpProfits0;
     mapping(PoolId => mapping(address => uint256)) public lpProfits1;
-    
+
     address public hook; // Main hook contract address
     address public positionManager; // Position manager contract
     address public configManager; // FHE config manager contract
@@ -27,34 +27,16 @@ contract ProfitManager {
     // ============ Events ============
 
     event ProfitHedged(
-        address indexed lp,
-        PoolId indexed poolId,
-        uint256 amount0,
-        uint256 amount1,
-        uint256 hedgePercentage
+        address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 hedgePercentage
     );
 
     event ProfitCompounded(
-        address indexed lp,
-        PoolId indexed poolId,
-        uint256 amount0,
-        uint256 amount1,
-        uint256 newTokenId
+        address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 newTokenId
     );
 
-    event ProfitAccrued(
-        address indexed lp,
-        PoolId indexed poolId,
-        uint256 amount0,
-        uint256 amount1
-    );
+    event ProfitAccrued(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
 
-    event ProfitWithdrawn(
-        address indexed lp,
-        PoolId indexed poolId,
-        uint256 amount0,
-        uint256 amount1
-    );
+    event ProfitWithdrawn(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
 
     // ============ Errors ============
 
@@ -72,11 +54,7 @@ contract ProfitManager {
 
     // ============ Constructor ============
 
-    constructor(
-        address _hook,
-        address _positionManager,
-        address _configManager
-    ) {
+    constructor(address _hook, address _positionManager, address _configManager) {
         hook = _hook;
         positionManager = _positionManager;
         configManager = _configManager;
@@ -91,14 +69,9 @@ contract ProfitManager {
      * @param amount0 Token0 profit amount
      * @param amount1 Token1 profit amount
      */
-    function accrueProfit(
-        PoolKey calldata poolKey,
-        address lp,
-        uint256 amount0,
-        uint256 amount1
-    ) external onlyHook {
+    function accrueProfit(PoolKey calldata poolKey, address lp, uint256 amount0, uint256 amount1) external onlyHook {
         PoolId poolId = poolKey.toId();
-        
+
         lpProfits0[poolId][lp] += amount0;
         lpProfits1[poolId][lp] += amount1;
 
@@ -110,12 +83,9 @@ contract ProfitManager {
      * @param poolKey The pool to hedge profits from
      * @param hedgePercentage Percentage of profits to hedge (0-100)
      */
-    function hedgeProfits(
-        PoolKey calldata poolKey,
-        uint256 hedgePercentage
-    ) external {
+    function hedgeProfits(PoolKey calldata poolKey, uint256 hedgePercentage) external {
         if (hedgePercentage > 100) revert InvalidPercentage();
-        
+
         PoolId poolId = poolKey.toId();
 
         uint256 profit0 = lpProfits0[poolId][msg.sender];
@@ -146,10 +116,7 @@ contract ProfitManager {
      * @param poolKey Pool identifier
      * @param lp LP address
      */
-    function autoHedgeProfits(
-        PoolKey calldata poolKey,
-        address lp
-    ) external onlyHook {
+    function autoHedgeProfits(PoolKey calldata poolKey, address lp) external onlyHook {
         PoolId poolId = poolKey.toId();
 
         // Get hedge percentage from config manager
@@ -185,11 +152,10 @@ contract ProfitManager {
      * @param tickLower Lower tick for new position
      * @param tickUpper Upper tick for new position
      */
-    function compoundProfits(
-        PoolKey calldata poolKey,
-        int24 tickLower,
-        int24 tickUpper
-    ) external returns (uint256 tokenId) {
+    function compoundProfits(PoolKey calldata poolKey, int24 tickLower, int24 tickUpper)
+        external
+        returns (uint256 tokenId)
+    {
         PoolId poolId = poolKey.toId();
 
         uint256 profit0 = lpProfits0[poolId][msg.sender];
@@ -220,13 +186,7 @@ contract ProfitManager {
         //     msg.sender
         // );
 
-        emit ProfitCompounded(
-            msg.sender,
-            poolId,
-            profit0,
-            profit1,
-            tokenId
-        );
+        emit ProfitCompounded(msg.sender, poolId, profit0, profit1, tokenId);
 
         return tokenId;
     }
@@ -263,15 +223,12 @@ contract ProfitManager {
      * @param poolKeys Array of pools to hedge
      * @param hedgePercentages Array of hedge percentages
      */
-    function batchHedgeProfits(
-        PoolKey[] calldata poolKeys,
-        uint256[] calldata hedgePercentages
-    ) external {
+    function batchHedgeProfits(PoolKey[] calldata poolKeys, uint256[] calldata hedgePercentages) external {
         if (poolKeys.length != hedgePercentages.length) revert ArrayLengthMismatch();
 
         for (uint256 i = 0; i < poolKeys.length; i++) {
             if (hedgePercentages[i] > 100) revert InvalidPercentage();
-            
+
             PoolId poolId = poolKeys[i].toId();
             uint256 profit0 = lpProfits0[poolId][msg.sender];
             uint256 profit1 = lpProfits1[poolId][msg.sender];
@@ -286,25 +243,13 @@ contract ProfitManager {
 
                 // Transfer hedged amounts
                 if (hedgeAmount0 > 0) {
-                    IERC20(Currency.unwrap(poolKeys[i].currency0)).transfer(
-                        msg.sender,
-                        hedgeAmount0
-                    );
+                    IERC20(Currency.unwrap(poolKeys[i].currency0)).transfer(msg.sender, hedgeAmount0);
                 }
                 if (hedgeAmount1 > 0) {
-                    IERC20(Currency.unwrap(poolKeys[i].currency1)).transfer(
-                        msg.sender,
-                        hedgeAmount1
-                    );
+                    IERC20(Currency.unwrap(poolKeys[i].currency1)).transfer(msg.sender, hedgeAmount1);
                 }
 
-                emit ProfitHedged(
-                    msg.sender,
-                    poolId,
-                    hedgeAmount0,
-                    hedgeAmount1,
-                    hedgePercentages[i]
-                );
+                emit ProfitHedged(msg.sender, poolId, hedgeAmount0, hedgeAmount1, hedgePercentages[i]);
             }
         }
     }
