@@ -20,7 +20,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 
 // Hook and FHE imports
-import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
+import {ZKJITLiquidityHookOLD} from "../src/ZKJITLiquidityHookOLD.sol";
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 
@@ -33,7 +33,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
     using StateLibrary for IPoolManager;
 
     // ============ Test Setup ============
-    ZKJITLiquidityHook public hook;
+    ZKJITLiquidityHookOLD public hook;
 
     // Test actors
     address public constant LP1 = address(0x1111);
@@ -67,8 +67,8 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
         address hookAddress = address(flags);
 
         vm.txGasPrice(10 gwei);
-        deployCodeTo("ZKJITLiquidityHook.sol", abi.encode(manager), hookAddress);
-        hook = ZKJITLiquidityHook(hookAddress);
+        deployCodeTo("ZKJITLiquidityHookOLD.sol", abi.encode(manager), hookAddress);
+        hook = ZKJITLiquidityHookOLD(hookAddress);
 
         // Approve hook for token spending
         MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
@@ -133,7 +133,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
         console.log("LP1 received internal token ID: %s", tokenId);
 
         // Verify position tracking
-        ZKJITLiquidityHook.LPPosition[] memory positions = hook.getLPPositions(key, LP1);
+        ZKJITLiquidityHookOLD.LPPosition[] memory positions = hook.getLPPositions(key, LP1);
         assertGt(positions.length, 0, "Should have LP positions");
         assertEq(positions[0].tokenId, tokenId, "Token ID should match");
         assertEq(positions[0].liquidity, 5000, "Liquidity should match");
@@ -185,7 +185,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
         // Verify multi-LP participation
         uint256 swapId = hook.nextSwapId();
         if (swapId > 0) {
-            ZKJITLiquidityHook.JITLiquidityPosition memory jitPos = hook.getJITPosition(swapId);
+            ZKJITLiquidityHookOLD.JITLiquidityPosition memory jitPos = hook.getJITPosition(swapId);
             console.log("JIT participants: %s LPs", jitPos.participatingLPs.length);
 
             if (jitPos.participatingLPs.length > 1) {
@@ -454,7 +454,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
         console.log("Created 3 positions with token IDs: %s, %s, %s", tokenId1, tokenId2, tokenId3);
 
         // Verify position tracking
-        ZKJITLiquidityHook.LPPosition[] memory positions = hook.getLPPositions(key, LP1);
+        ZKJITLiquidityHookOLD.LPPosition[] memory positions = hook.getLPPositions(key, LP1);
         assertEq(positions.length, 3, "Should have 3 positions");
 
         // Partially remove middle position
@@ -491,7 +491,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP1);
 
-        ZKJITLiquidityHook.LPPosition[] memory initialPositions = hook.getLPPositions(key, LP1);
+        ZKJITLiquidityHookOLD.LPPosition[] memory initialPositions = hook.getLPPositions(key, LP1);
         uint256 initialCount = initialPositions.length;
 
         (uint256 profit0, uint256 profit1) = hook.getLPProfits(key, LP1);
@@ -502,7 +502,7 @@ contract ZKJITLiquidityTest is Test, Deployers, CoFheTest {
             hook.compoundProfits(key, -90, 90);
 
             // Verify new position created
-            ZKJITLiquidityHook.LPPosition[] memory newPositions = hook.getLPPositions(key, LP1);
+            ZKJITLiquidityHookOLD.LPPosition[] memory newPositions = hook.getLPPositions(key, LP1);
             assertGt(newPositions.length, initialCount, "Should have additional position");
 
             // Verify profits were reset
