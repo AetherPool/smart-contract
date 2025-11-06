@@ -142,6 +142,9 @@ contract FHEConfigManager {
         PoolId poolId = poolKey.toId();
         lpConfigs[poolId][msg.sender].isActive = false;
 
+        LPConfig storage config = lpConfigs[poolId][msg.sender];
+        FHE.decrypt(config.minSwapSize);
+
         emit LPDeactivated(poolId, msg.sender);
     }
 
@@ -153,13 +156,14 @@ contract FHEConfigManager {
         PoolId poolId = poolKey.toId();
         LPConfig storage config = lpConfigs[poolId][msg.sender];
 
-        uint128 minSwapValue = decryptMinSwapSize(poolKey, msg.sender);
+        (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // decrypt already called in the deactivateLP function
+        if (!minSwapDecrypted) revert("minSwapSize is not ready");
 
-        (uint128 zeroValue, bool zeroDecrypted) = FHE.getDecryptResultSafe(ENCRYPTED_ZERO);
-        if (!zeroDecrypted) revert("zeroValue is not ready");
+        // (uint128 zeroValue, bool zeroDecrypted) = FHE.getDecryptResultSafe(ENCRYPTED_ZERO);
+        // if (!zeroDecrypted) revert("zeroValue is not ready");
 
         // Check if config exists (has been set before)
-        if (minSwapValue == zeroValue) {
+        if (minSwapValue == 0) {
             revert InvalidConfiguration();
         }
 
@@ -218,8 +222,13 @@ contract FHEConfigManager {
         // ebool result = FHE.gt(FHE.asEuint128(swapAmount), config.minSwapSize);
         // return FHE.decrypt(result);
 
-        // Demo: Check if swapAmount > 1000 (simplified)
-        return swapAmount > 1000;
+        (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // Ensure to call decrypt first (decryptMinSwapSize)
+        if (!minSwapDecrypted) revert("minSwapSize is not ready");
+
+        return (swapAmount > minSwapValue);
+
+        // // Demo: Check if swapAmount > 1000 (simplified)
+        // return swapAmount > 1000;
     }
 
     /**
@@ -243,25 +252,19 @@ contract FHEConfigManager {
      * @notice Decrypt minimum swap size (for authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
-     * @return Decrypted minimum swap size
      */
-    function decryptMinSwapSize(PoolKey calldata poolKey, address lp) public view onlyHook returns (uint128) {
+    function decryptMinSwapSize(PoolKey calldata poolKey, address lp) public onlyHook {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-        (uint128 minSwapValue, bool decrypted) = FHE.getDecryptResultSafe(config.minSwapSize);
-        if (!decrypted) revert("minSwapValue is not ready");
-        return minSwapValue;
+        FHE.decrypt(config.minSwapSize);
     }
 
     /**
      * @notice Decrypt max liquidity (for authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
-     * @return Decrypted maximum liquidity
      */
-    function decryptMaxLiquidity(PoolKey calldata poolKey, address lp) external view onlyHook returns (uint128) {
+    function decryptMaxLiquidity(PoolKey calldata poolKey, address lp) external onlyHook {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-        (uint128 maxLiqValue, bool decrypted) = FHE.getDecryptResultSafe(config.maxLiquidity);
-        if (!decrypted) revert("maxLiqValue is not ready");
-        return maxLiqValue;
+        FHE.decrypt(config.maxLiquidity);
     }
 }
