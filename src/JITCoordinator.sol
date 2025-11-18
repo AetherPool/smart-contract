@@ -49,6 +49,14 @@ contract JITCoordinator {
         uint256 timestamp; // Creation timestamp
     }
 
+    // Temporary struct to reduce stack depth
+    struct EvaluationCache {
+        PoolId poolId;
+        int24 currentTick;
+        address[] allLPs;
+        uint256 eligibleCount;
+    }
+
     // ============ Storage ============
 
     IPoolManager public immutable poolManager;
@@ -120,53 +128,33 @@ contract JITCoordinator {
     {
         if (swapAmount == 0) revert InvalidSwapAmount();
 
-        PoolId poolId = key.toId();
+        // Initialize cache to reduce stack depth
+        EvaluationCache memory cache;
+        cache.poolId = key.toId();
+        cache.allLPs = ILPPositionManager(positionManager).getPoolLPs(key);
+        cache.eligibleCount = 0;
 
-        // Get all LPs in the pool from position manager
-        // For demo: simulate getting LPs
-        // address[] memory allLPs = new address[](0);
-        
-        address[] memory allLPs = ILPPositionManager(positionManager).getPoolLPs(key);
+        // Get current tick
+        (, cache.currentTick,,) = poolManager.getSlot0(cache.poolId);
 
-        uint256 eligibleCount = 0;
-        address[] memory tempEligibleLPs = new address[](allLPs.length);
-        uint128[] memory tempContributions = new uint128[](allLPs.length);
+        // Temporary arrays for eligible LPs
+        address[] memory tempEligibleLPs = new address[](cache.allLPs.length);
+        uint128[] memory tempContributions = new uint128[](cache.allLPs.length);
 
-        // Get current tick for range overlap checking
-        (, int24 currentTick,,) = poolManager.getSlot0(poolId);
-
-        for (uint256 i = 0; i < allLPs.length; i++) {
-            address lp = allLPs[i];
-
-            // Check if LP is active in config manager
-            // bool isActive = true; // Demo
-            bool isActive = IFHEConfigManager(configManager).isActive(key, lp);
-
-            if (isActive) {
-                // Check for overlapping positions
-                bool hasOverlap =
-                    ILPPositionManager(positionManager).hasOverlappingPosition(poolId, lp, currentTick, TICK_RANGE);
-                // bool hasOverlap = true; // Demo
-
-                if (hasOverlap) {
-                    // Check if swap meets threshold
-                    bool meetsThreshold = IFHEConfigManager(configManager).meetsThreshold(key, lp, swapAmount);
-                    // bool meetsThreshold = swapAmount > 1000; // Demo
-
-                    if (meetsThreshold) {
-                        tempEligibleLPs[eligibleCount] = lp;
-                        tempContributions[eligibleCount] = _calculateLPContribution(poolId, lp, swapAmount);
-                        eligibleCount++;
-                    }
-                }
+        // Evaluate each LP
+        for (uint256 i = 0; i < cache.allLPs.length; i++) {
+            if (_isLPEligible(key, cache.allLPs[i], cache.poolId, cache.currentTick, swapAmount)) {
+                tempEligibleLPs[cache.eligibleCount] = cache.allLPs[i];
+                tempContributions[cache.eligibleCount] = _calculateLPContribution(cache.poolId, cache.allLPs[i], swapAmount);
+                cache.eligibleCount++;
             }
         }
 
         // Resize arrays to actual count
-        eligibleLPs = new address[](eligibleCount);
-        contributions = new uint128[](eligibleCount);
+        eligibleLPs = new address[](cache.eligibleCount);
+        contributions = new uint128[](cache.eligibleCount);
 
-        for (uint256 i = 0; i < eligibleCount; i++) {
+        for (uint256 i = 0; i < cache.eligibleCount; i++) {
             eligibleLPs[i] = tempEligibleLPs[i];
             contributions[i] = tempContributions[i];
         }
@@ -266,6 +254,36 @@ contract JITCoordinator {
     // ============ Internal Functions ============
 
     /**
+     * @notice Check if LP is eligible for JIT participation
+     * @param key Pool key
+     * @param lp LP address
+     * @param poolId Pool identifier
+     * @param currentTick Current pool tick
+     * @param swapAmount Swap size
+     * @return Whether LP is eligible
+     */
+    function _isLPEligible(
+        PoolKey calldata key,
+        address lp,
+        PoolId poolId,
+        int24 currentTick,
+        uint128 swapAmount
+    ) private view returns (bool) {
+        // Check if LP is active
+        if (!IFHEConfigManager(configManager).isActive(key, lp)) {
+            return false;
+        }
+
+        // Check for overlapping positions
+        if (!ILPPositionManager(positionManager).hasOverlappingPosition(poolId, lp, currentTick, TICK_RANGE)) {
+            return false;
+        }
+
+        // Check if swap meets threshold
+        return IFHEConfigManager(configManager).meetsThreshold(key, lp, swapAmount);
+    }
+
+    /**
      * @notice Add JIT liquidity for multiple LPs
      * @param key Pool key
      * @param swapId Swap identifier
@@ -304,22 +322,35 @@ contract JITCoordinator {
                 timestamp: block.timestamp
             });
 
-            // Distribute simulated profits to participating LPs
-            for (uint256 i = 0; i < lps.length; i++) {
-                uint256 initialProfit0 = contributions[i] / 20; // 5% simulated profit
-                uint256 initialProfit1 = contributions[i] / 20;
-
-                // Accrue profits through profit manager
-                IProfitManager(profitManager).accrueProfit(key, lps[i], initialProfit0, initialProfit1);
-
-                // Auto-hedge if enabled
-                bool autoHedgeEnabled = IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lps[i]);
-                if (autoHedgeEnabled) {
-                    IProfitManager(profitManager).autoHedgeProfits(key, lps[i]);
-                }
-            }
+            // Distribute initial profits
+            _distributeInitialProfits(key, lps, contributions);
 
             emit JITExecuted(swapId, poolId, totalLiquidity);
+        }
+    }
+
+    /**
+     * @notice Distribute initial profits to participating LPs
+     * @param key Pool key
+     * @param lps Array of LP addresses
+     * @param contributions Array of LP contributions
+     */
+    function _distributeInitialProfits(
+        PoolKey memory key,
+        address[] memory lps,
+        uint128[] memory contributions
+    ) private {
+        for (uint256 i = 0; i < lps.length; i++) {
+            uint256 initialProfit0 = contributions[i] / 20; // 5% simulated profit
+            uint256 initialProfit1 = contributions[i] / 20;
+
+            // Accrue profits through profit manager
+            IProfitManager(profitManager).accrueProfit(key, lps[i], initialProfit0, initialProfit1);
+
+            // Auto-hedge if enabled
+            if (IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lps[i])) {
+                IProfitManager(profitManager).autoHedgeProfits(key, lps[i]);
+            }
         }
     }
 
@@ -333,7 +364,6 @@ contract JITCoordinator {
     function _calculateLPContribution(PoolId poolId, address lp, uint128 swapAmount) private view returns (uint128) {
         // Get LP's total liquidity from position manager
         uint128 totalLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
-        // uint128 totalLiquidity = 10000; // Demo
 
         // Calculate contribution based on swap size and LP capacity
         uint128 maxContribution = swapAmount / 10; // Max 10% of swap
