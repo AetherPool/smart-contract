@@ -217,18 +217,10 @@ contract FHEConfigManager {
 
         if (!config.isActive) return false;
 
-        // Simplified threshold check for demo
-        // In production: use FHE.gt() for private comparison
-        // ebool result = FHE.gt(FHE.asEuint128(swapAmount), config.minSwapSize);
-        // return FHE.decrypt(result);
-
-        (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // Ensure to call decrypt first (decryptMinSwapSize)
+        (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // Ensure to call decrypt first (decryptMinSwapSize) and wait some seconds before calling this function
         if (!minSwapDecrypted) revert("minSwapSize is not ready");
 
         return (swapAmount > minSwapValue);
-
-        // // Demo: Check if swapAmount > 1000 (simplified)
-        // return swapAmount > 1000;
     }
 
     /**
@@ -243,13 +235,24 @@ contract FHEConfigManager {
 
         if (!config.autoHedgeEnabled) return 0;
 
-        // Simplified: return 50% for demo
-        // In production: use FHE.decrypt(config.hedgePercentage) with proper access control
-        return 50;
+        (uint32 hedgeValue, bool hedgeDecrypted) = FHE.getDecryptResultSafe(config.hedgePercentage); // Ensure to call decrypt first (decryptHedgePercentage) and wait some seconds before calling this function
+        if (!hedgeDecrypted) revert("hedgePercentage is not ready");
+
+        return uint256(hedgeValue);
     }
 
     /**
-     * @notice Decrypt minimum swap size (for authorized hook only)
+     * @notice Decrypt hedge percentage (would be set for authorized hook only)
+     * @param poolKey Pool to query
+     * @param lp LP address
+     */
+    function decryptHedgePercentage(PoolKey calldata poolKey, address lp) external onlyHook {
+        LPConfig memory config = lpConfigs[poolKey.toId()][lp];
+        FHE.decrypt(config.hedgePercentage);
+    }
+
+    /**
+     * @notice Decrypt minimum swap size (would be set for authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
      */
@@ -259,7 +262,7 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Decrypt max liquidity (for authorized hook only)
+     * @notice Decrypt max liquidity (would be set for authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
      */
