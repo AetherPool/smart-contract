@@ -18,4 +18,5 @@ interface IFHEConfigManager {
     function isActive(PoolKey calldata poolKey, address lp) external view returns (bool);
     function hasAutoHedgeEnabled(PoolKey calldata poolKey, address lp) external view returns (bool);
     function meetsThreshold(PoolKey calldata poolKey, address lp, uint128 swapAmount) external view returns (bool);
+    function getHedgePercentage(PoolKey calldata poolKey, address lp) external view returns (uint256);
 }

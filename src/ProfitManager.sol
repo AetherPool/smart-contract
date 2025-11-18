@@ -6,6 +6,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
+import {IFHEConfigManager} from "./interfaces/IFHEConfigManager.sol";
 
 /**
  * @title ProfitManager
@@ -122,7 +123,9 @@ contract ProfitManager {
 
         // Get hedge percentage from config manager
         // For demo: using 50% (in production, decrypt from FHE config)
-        uint256 hedgePercentage = 50;
+        // uint256 hedgePercentage = 50;
+
+        uint256 hedgePercentage = IFHEConfigManager(configManager).getHedgePercentage(poolKey, lp);
 
         uint256 profit0 = lpProfits0[poolId][lp];
         uint256 profit1 = lpProfits1[poolId][lp];

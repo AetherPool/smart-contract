@@ -123,11 +123,10 @@ contract JITCoordinator {
         PoolId poolId = key.toId();
 
         // Get all LPs in the pool from position manager
-        // Note: In production, add proper interface
-        // address[] memory allLPs = ILPPositionManager(positionManager).getPoolLPs(key);
-
         // For demo: simulate getting LPs
-        address[] memory allLPs = new address[](0);
+        // address[] memory allLPs = new address[](0);
+        
+        address[] memory allLPs = ILPPositionManager(positionManager).getPoolLPs(key);
 
         uint256 eligibleCount = 0;
         address[] memory tempEligibleLPs = new address[](allLPs.length);
@@ -140,8 +139,8 @@ contract JITCoordinator {
             address lp = allLPs[i];
 
             // Check if LP is active in config manager
-            // bool isActive = IFHEConfigManager(configManager).isActive(key, lp);
-            bool isActive = true; // Demo
+            // bool isActive = true; // Demo
+            bool isActive = IFHEConfigManager(configManager).isActive(key, lp);
 
             if (isActive) {
                 // Check for overlapping positions
