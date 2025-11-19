@@ -9,7 +9,6 @@ import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
-import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
 
@@ -19,6 +18,10 @@ import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 
 // Contract under test
 import {FHEConfigManager} from "../src/FHEConfigManager.sol";
+import {LPPositionManager} from "../src/LPPositionManager.sol";
+import {DynamicFeeManager} from "../src/DynamicFeeManager.sol";
+import {ProfitManager} from "../src/ProfitManager.sol";
+import {JITCoordinator} from "../src/JITCoordinator.sol";
 
 /**
  * @title FHEConfigManager Test Suite
@@ -28,6 +31,10 @@ import {FHEConfigManager} from "../src/FHEConfigManager.sol";
 contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
     // ============ Test Setup ============
     FHEConfigManager public configManager;
+    LPPositionManager public positionManager;
+    DynamicFeeManager public feeManager;
+    ProfitManager public profitManager;
+    JITCoordinator public jitCoordinator;
     ZKJITLiquidityHook public hook;
 
     address public constant HOOK = address(0x1111);
@@ -35,6 +42,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
     address public constant LP2 = address(0x3333);
     address public constant LP3 = address(0x4444);
     address public constant USER = address(0x5555);
+    address public constant OWNER = address(0x9999);
 
     // Events for tracking
     event LPConfigSet(bytes32 indexed poolId, address indexed lp, bool isActive);
@@ -56,22 +64,45 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         address hookAddress = address(flags);
 
         vm.txGasPrice(10 gwei);
-        deployCodeTo("ZKJITLiquidityHookOLD.sol", abi.encode(manager), hookAddress);
-        hook = ZKJITLiquidityHook(hookAddress);
 
-        // Approve hook for token spending
-        // MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
-        // MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
+        // ============ DEPLOY MODULES FIRST ============
+
+        positionManager = new LPPositionManager(HOOK);
+        configManager = new FHEConfigManager(HOOK);
+
+        vm.startPrank(HOOK); // Hook needs to be the caller so as to update moving average
+        feeManager = new DynamicFeeManager(HOOK, OWNER);
+        vm.stopPrank();
+
+        profitManager = new ProfitManager(HOOK, address(positionManager), address(configManager));
+        jitCoordinator =
+            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager));
+
+        console.log("Modules deployed:");
+        console.log("  PositionManager:", address(positionManager));
+        console.log("  ConfigManager:", address(configManager));
+        console.log("  FeeManager:", address(feeManager));
+        console.log("  ProfitManager:", address(profitManager));
+        console.log("  JITCoordinator:", address(jitCoordinator));
+
+        // ============ DEPLOY HOOK WITH MODULE ADDRESSES ============
+
+        deployCodeTo(
+            "ZKJITLiquidityHook.sol",
+            abi.encode(
+                manager,
+                address(positionManager),
+                address(configManager),
+                address(feeManager),
+                address(profitManager),
+                address(jitCoordinator)
+            ),
+            hookAddress
+        );
+        hook = ZKJITLiquidityHook(hookAddress);
 
         // Initialize pool
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
-
-        // Deploy config manager
-        vm.prank(HOOK);
-        configManager = new FHEConfigManager(HOOK);
-
-        console.log("FHEConfigManager deployed at:", address(configManager));
-        console.log("Hook address:", HOOK);
         console.log("");
     }
 
