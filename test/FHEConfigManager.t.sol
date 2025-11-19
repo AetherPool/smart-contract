@@ -36,8 +36,6 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
     address public constant LP3 = address(0x4444);
     address public constant USER = address(0x5555);
 
-    // PoolKey public key;
-
     // Events for tracking
     event LPConfigSet(bytes32 indexed poolId, address indexed lp, bool isActive);
     event LPConfigUpdated(bytes32 indexed poolId, address indexed lp, bool autoHedgeEnabled);
@@ -62,8 +60,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         hook = ZKJITLiquidityHook(hookAddress);
 
         // Approve hook for token spending
-        MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
-        MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
+        // MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
+        // MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
 
         // Initialize pool
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
@@ -98,8 +96,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         console.log("  Hedge Percentage: 50%% (encrypted)");
         console.log("  Auto-Hedge: Enabled");
 
-        // vm.expectEmit(true, true, true, true);
-        // emit LPConfigSet(key.toId(), LP1, true);
+        vm.expectEmit(true, true, true, true);
+        emit LPConfigSet(keccak256(abi.encode(key)), LP1, true);
         configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, true);
 
         vm.stopPrank();
@@ -221,8 +219,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         assertTrue(configManager.hasAutoHedgeEnabled(key, LP1), "Should be enabled");
 
         // Update to disabled
-        // vm.expectEmit(true, true, true, true);
-        // emit LPConfigUpdated(key.toId(), LP1, false);
+        vm.expectEmit(true, true, true, true);
+        emit LPConfigUpdated(keccak256(abi.encode(key)), LP1, false);
         configManager.updateAutoHedge(key, false);
 
         console.log("Updated auto-hedge: Disabled");
@@ -256,8 +254,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         assertTrue(configManager.isActive(key, LP1), "LP should be active initially");
         console.log("LP1 initially active");
 
-        // vm.expectEmit(true, true, true, true);
-        // emit LPDeactivated(key.toId(), LP1);
+        vm.expectEmit(true, true, true, true);
+        emit LPDeactivated(keccak256(abi.encode(key)), LP1);
         configManager.deactivateLP(key);
 
         assertFalse(configManager.isActive(key, LP1), "LP should be inactive after deactivation");
@@ -294,8 +292,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         vm.warp(block.timestamp + 10);
 
         // Reactivate
-        // vm.expectEmit(true, true, true, true);
-        // emit LPConfigSet(key.toId(), LP1, true);
+        vm.expectEmit(true, true, true, true);
+        emit LPConfigSet(keccak256(abi.encode(key)), LP1, true);
         configManager.reactivateLP(key);
 
         assertTrue(configManager.isActive(key, LP1), "LP should be active after reactivation");
@@ -494,7 +492,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
 
         // Test reactivating LP that was never configured
         vm.prank(LP2);
-        vm.expectRevert(FHEConfigManager.InvalidConfiguration.selector);
+        vm.expectRevert(FHEConfigManager.DecryptionNotReady.selector);
         configManager.reactivateLP(key);
         console.log("Reactivate unconfigured LP rejected");
 
@@ -575,48 +573,49 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
 
     // ============ Test 13: Multiple Pool Configurations ============
 
-    // function testMultiplePoolConfigurations() public {
-    //     console.log("TEST 13: Multiple Pool Configurations");
-    //     console.log("------------------------------------");
+    function testMultiplePoolConfigurations() public {
+        console.log("TEST 13: Multiple Pool Configurations");
+        console.log("------------------------------------");
 
-    //     // Create second pool
-    //     PoolKey memory key2;
-    //     (key2,) = initPool(
-    //         Currency.wrap(address(0x9999)),
-    //         Currency.wrap(address(0x8888)),
-    //         LPFeeLibrary.DYNAMIC_FEE_FLAG,
-    //         SQRT_PRICE_1_1
-    //     );
+        // Create second pool
+        PoolKey memory key2;
+        (key2,) = initPool(
+            Currency.wrap(address(0x8888)),
+            Currency.wrap(address(0x9999)),
+            hook,
+            LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            SQRT_PRICE_1_1
+        );
 
-    //     vm.startPrank(LP1);
+        vm.startPrank(LP1);
 
-    //     // Configure in first pool
-    //     InEuint128 memory enc1MinSwap = createInEuint128(1000, LP1);
-    //     InEuint128 memory enc1MaxLiq = createInEuint128(50000, LP1);
-    //     InEuint32 memory enc1Profit = createInEuint32(30, LP1);
-    //     InEuint32 memory enc1Hedge = createInEuint32(50, LP1);
-    //     configManager.configureLPSettings(key, enc1MinSwap, enc1MaxLiq, enc1Profit, enc1Hedge, true);
-    //     console.log("LP1 configured in Pool 1");
+        // Configure in first pool
+        InEuint128 memory enc1MinSwap = createInEuint128(1000, LP1);
+        InEuint128 memory enc1MaxLiq = createInEuint128(50000, LP1);
+        InEuint32 memory enc1Profit = createInEuint32(30, LP1);
+        InEuint32 memory enc1Hedge = createInEuint32(50, LP1);
+        configManager.configureLPSettings(key, enc1MinSwap, enc1MaxLiq, enc1Profit, enc1Hedge, true);
+        console.log("LP1 configured in Pool 1");
 
-    //     // Configure in second pool with different parameters
-    //     InEuint128 memory enc2MinSwap = createInEuint128(2000, LP1);
-    //     InEuint128 memory enc2MaxLiq = createInEuint128(75000, LP1);
-    //     InEuint32 memory enc2Profit = createInEuint32(40, LP1);
-    //     InEuint32 memory enc2Hedge = createInEuint32(70, LP1);
-    //     configManager.configureLPSettings(key2, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, false);
-    //     console.log("LP1 configured in Pool 2 with different parameters");
+        // Configure in second pool with different parameters
+        InEuint128 memory enc2MinSwap = createInEuint128(2000, LP1);
+        InEuint128 memory enc2MaxLiq = createInEuint128(75000, LP1);
+        InEuint32 memory enc2Profit = createInEuint32(40, LP1);
+        InEuint32 memory enc2Hedge = createInEuint32(70, LP1);
+        configManager.configureLPSettings(key2, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, false);
+        console.log("LP1 configured in Pool 2 with different parameters");
 
-    //     vm.stopPrank();
+        vm.stopPrank();
 
-    //     // Verify independent configurations
-    //     assertTrue(configManager.isActive(key, LP1), "Should be active in pool 1");
-    //     assertTrue(configManager.isActive(key2, LP1), "Should be active in pool 2");
-    //     assertTrue(configManager.hasAutoHedgeEnabled(key, LP1), "Auto-hedge enabled in pool 1");
-    //     assertFalse(configManager.hasAutoHedgeEnabled(key2, LP1), "Auto-hedge disabled in pool 2");
+        // Verify independent configurations
+        assertTrue(configManager.isActive(key, LP1), "Should be active in pool 1");
+        assertTrue(configManager.isActive(key2, LP1), "Should be active in pool 2");
+        assertTrue(configManager.hasAutoHedgeEnabled(key, LP1), "Auto-hedge enabled in pool 1");
+        assertFalse(configManager.hasAutoHedgeEnabled(key2, LP1), "Auto-hedge disabled in pool 2");
 
-    //     console.log("Multiple pool configurations working independently");
-    //     console.log("");
-    // }
+        console.log("Multiple pool configurations working independently");
+        console.log("");
+    }
 
     // ============ Test 14: Inactive LP Behavior ============
 
@@ -673,7 +672,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         InEuint32 memory enc2Hedge = createInEuint32(50, LP2);
         configManager.configureLPSettings(key, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, true);
         vm.stopPrank();
-        console.log("LP2: Moderate (min 1000, auto-hedge 50%%)");
+        console.log("  LP2: Moderate (min 1000, auto-hedge 50%%)");
 
         // Configure LP3 (Aggressive strategy)
         vm.startPrank(LP3);
@@ -683,7 +682,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         InEuint32 memory enc3Hedge = createInEuint32(25, LP3);
         configManager.configureLPSettings(key, enc3MinSwap, enc3MaxLiq, enc3Profit, enc3Hedge, false);
         vm.stopPrank();
-        console.log("LP3: Aggressive (min 500, auto-hedge 25%%, disabled)");
+        console.log("  LP3: Aggressive (min 500, auto-hedge 25%%, disabled)");
 
         // Verify all LPs are active
         assertTrue(configManager.isActive(key, LP1), "LP1 should be active");

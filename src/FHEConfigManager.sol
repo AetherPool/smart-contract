@@ -37,15 +37,14 @@ contract FHEConfigManager {
     // ============ Events ============
 
     event LPConfigSet(PoolId indexed poolId, address indexed lp, bool isActive);
-
     event LPConfigUpdated(PoolId indexed poolId, address indexed lp, bool autoHedgeEnabled);
-
     event LPDeactivated(PoolId indexed poolId, address indexed lp);
 
     // ============ Errors ============
 
     error Unauthorized();
     error InvalidConfiguration();
+    error DecryptionNotReady();
 
     // ============ Modifiers ============
 
@@ -157,7 +156,7 @@ contract FHEConfigManager {
         LPConfig storage config = lpConfigs[poolId][msg.sender];
 
         (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // decrypt already called in the deactivateLP function
-        if (!minSwapDecrypted) revert("minSwapSize is not ready");
+        if (!minSwapDecrypted) revert DecryptionNotReady();
 
         // (uint128 zeroValue, bool zeroDecrypted) = FHE.getDecryptResultSafe(ENCRYPTED_ZERO);
         // if (!zeroDecrypted) revert("zeroValue is not ready");
@@ -218,7 +217,7 @@ contract FHEConfigManager {
         if (!config.isActive) return false;
 
         (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize); // Ensure to call decrypt first (decryptMinSwapSize) and wait some seconds before calling this function
-        if (!minSwapDecrypted) revert("minSwapSize is not ready");
+        if (!minSwapDecrypted) revert DecryptionNotReady();
 
         return (swapAmount > minSwapValue);
     }
