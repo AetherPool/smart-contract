@@ -25,11 +25,8 @@ contract DynamicFeeManager {
     // ============ Events ============
 
     event FeeCalculated(uint24 fee, uint128 currentGasPrice, uint128 movingAverage, FeeLevel level);
-
     event FeeParametersUpdated(uint24 baseFee, uint24 highGasFee, uint24 lowGasFee);
-
     event ThresholdsUpdated(uint256 highGasThreshold, uint256 lowGasThreshold);
-
     event MovingAverageUpdated(uint128 newAverage, uint104 count);
 
     // ============ Enums ============
@@ -151,6 +148,9 @@ contract DynamicFeeManager {
      */
     function updateFeeParameters(uint24 _baseFee, uint24 _highGasFee, uint24 _lowGasFee) external onlyOwner {
         if (_baseFee == 0 || _highGasFee == 0 || _lowGasFee == 0) revert InvalidFee();
+
+        // highGas ==> Fee < baseFee (fee during high gas must be lower than base)
+        // lowGas ==> Fee > baseFee (fee during low gas must be higher than base)
         if (_highGasFee >= _baseFee || _lowGasFee <= _baseFee) revert InvalidFee();
 
         baseFee = _baseFee;

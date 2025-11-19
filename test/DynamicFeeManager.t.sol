@@ -27,12 +27,7 @@ contract DynamicFeeManagerTest is Test {
     uint256 public constant EXTREME_HIGH_GAS = 25 gwei;
 
     // Events for tracking
-    event FeeCalculated(
-        uint24 fee,
-        uint128 currentGasPrice,
-        uint128 movingAverage,
-        DynamicFeeManager.FeeLevel level
-    );
+    event FeeCalculated(uint24 fee, uint128 currentGasPrice, uint128 movingAverage, DynamicFeeManager.FeeLevel level);
     event FeeParametersUpdated(uint24 baseFee, uint24 highGasFee, uint24 lowGasFee);
     event ThresholdsUpdated(uint256 highGasThreshold, uint256 lowGasThreshold);
     event MovingAverageUpdated(uint128 newAverage, uint104 count);

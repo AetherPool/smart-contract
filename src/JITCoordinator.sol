@@ -145,7 +145,8 @@ contract JITCoordinator {
         for (uint256 i = 0; i < cache.allLPs.length; i++) {
             if (_isLPEligible(key, cache.allLPs[i], cache.poolId, cache.currentTick, swapAmount)) {
                 tempEligibleLPs[cache.eligibleCount] = cache.allLPs[i];
-                tempContributions[cache.eligibleCount] = _calculateLPContribution(cache.poolId, cache.allLPs[i], swapAmount);
+                tempContributions[cache.eligibleCount] =
+                    _calculateLPContribution(cache.poolId, cache.allLPs[i], swapAmount);
                 cache.eligibleCount++;
             }
         }
@@ -262,13 +263,11 @@ contract JITCoordinator {
      * @param swapAmount Swap size
      * @return Whether LP is eligible
      */
-    function _isLPEligible(
-        PoolKey calldata key,
-        address lp,
-        PoolId poolId,
-        int24 currentTick,
-        uint128 swapAmount
-    ) private view returns (bool) {
+    function _isLPEligible(PoolKey calldata key, address lp, PoolId poolId, int24 currentTick, uint128 swapAmount)
+        private
+        view
+        returns (bool)
+    {
         // Check if LP is active
         if (!IFHEConfigManager(configManager).isActive(key, lp)) {
             return false;
@@ -335,11 +334,9 @@ contract JITCoordinator {
      * @param lps Array of LP addresses
      * @param contributions Array of LP contributions
      */
-    function _distributeInitialProfits(
-        PoolKey memory key,
-        address[] memory lps,
-        uint128[] memory contributions
-    ) private {
+    function _distributeInitialProfits(PoolKey memory key, address[] memory lps, uint128[] memory contributions)
+        private
+    {
         for (uint256 i = 0; i < lps.length; i++) {
             uint256 initialProfit0 = contributions[i] / 20; // 5% simulated profit
             uint256 initialProfit1 = contributions[i] / 20;
