@@ -235,7 +235,7 @@ contract FHEConfigManager {
         if (!config.autoHedgeEnabled) return 0;
 
         (uint32 hedgeValue, bool hedgeDecrypted) = FHE.getDecryptResultSafe(config.hedgePercentage); // Ensure to call decrypt first (decryptHedgePercentage) and wait some seconds before calling this function
-        if (!hedgeDecrypted) revert("hedgePercentage is not ready");
+        if (!hedgeDecrypted) revert DecryptionNotReady();
 
         return uint256(hedgeValue);
     }

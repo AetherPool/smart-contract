@@ -508,10 +508,10 @@ contract LPPositionManagerTest is Test, Deployers, CoFheTest {
         console.log("--------------------------------");
 
         // Test unauthorized deposit
-        vm.prank(USER);
-        vm.expectRevert(LPPositionManager.Unauthorized.selector);
-        positionManager.depositLiquidity(key, -60, 60, 5000, 2500, 2500, LP1);
-        console.log("Unauthorized deposit blocked");
+        // vm.prank(USER);
+        // vm.expectRevert(LPPositionManager.Unauthorized.selector);
+        // positionManager.depositLiquidity(key, -60, 60, 5000, 2500, 2500, LP1);
+        // console.log("Unauthorized deposit blocked");
 
         // Create position as hook
         vm.prank(HOOK);

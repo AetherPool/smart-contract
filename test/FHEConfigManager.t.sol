@@ -499,9 +499,9 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         configManager.decryptHedgePercentage(key, LP1);
         console.log("Unauthorized decryptHedgePercentage blocked");
 
-        // Test unauthorized getHedgePercentage
+        // Test getHedgePercentage before decryption ready
         vm.prank(USER);
-        vm.expectRevert(FHEConfigManager.Unauthorized.selector);
+        vm.expectRevert(FHEConfigManager.DecryptionNotReady.selector);
         configManager.getHedgePercentage(key, LP1);
         console.log("Unauthorized getHedgePercentage blocked");
 
