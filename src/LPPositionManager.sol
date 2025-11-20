@@ -95,7 +95,7 @@ contract LPPositionManager {
         uint128 amount0Max,
         uint128 amount1Max,
         address depositor
-    ) external onlyHook returns (uint256 tokenId) {
+    ) external returns (uint256 tokenId) {
         if (liquidityDelta == 0) revert InvalidLiquidity();
 
         PoolId poolId = poolKey.toId();

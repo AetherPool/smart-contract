@@ -106,8 +106,6 @@ contract LPPositionManagerTest is Test, Deployers, CoFheTest {
         );
         hook = ZKJITLiquidityHook(hookAddress);
 
-        console.log("Hook deployed at:", hookAddress);
-
         // Initialize pool
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 

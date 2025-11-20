@@ -229,7 +229,7 @@ contract FHEConfigManager {
      * @param lp LP address
      * @return Hedge percentage (0-100)
      */
-    function getHedgePercentage(PoolKey calldata poolKey, address lp) external view onlyHook returns (uint256) {
+    function getHedgePercentage(PoolKey calldata poolKey, address lp) external view returns (uint256) {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
 
         if (!config.autoHedgeEnabled) return 0;

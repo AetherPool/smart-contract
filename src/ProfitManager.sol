@@ -31,13 +31,10 @@ contract ProfitManager {
     event ProfitHedged(
         address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 hedgePercentage
     );
-
     event ProfitCompounded(
         address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 newTokenId
     );
-
     event ProfitAccrued(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
-
     event ProfitWithdrawn(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
 
     // ============ Errors ============
@@ -179,7 +176,6 @@ contract ProfitManager {
         IERC20(Currency.unwrap(poolKey.currency1)).approve(positionManager, profit1);
 
         // Create new position through position manager
-        // Note: In production, add proper interface call
         tokenId = ILPPositionManager(positionManager).depositLiquidity(
             poolKey, tickLower, tickUpper, liquidityFromProfits, uint128(profit0), uint128(profit1), msg.sender
         );
