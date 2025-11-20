@@ -75,11 +75,8 @@ contract JITCoordinator {
     // ============ Events ============
 
     event JITRequested(uint256 indexed swapId, PoolId indexed poolId, address indexed swapper, uint128 swapAmount);
-
     event JITExecuted(uint256 indexed swapId, PoolId indexed poolId, uint128 liquidityProvided);
-
     event JITMultiLPExecution(uint256 indexed swapId, address[] lps, uint128[] contributions);
-
     event JITRemoved(uint256 indexed swapId, PoolId indexed poolId);
 
     // ============ Errors ============

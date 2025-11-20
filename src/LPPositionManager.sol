@@ -44,13 +44,10 @@ contract LPPositionManager {
     // ============ Events ============
 
     event LPTokenMinted(address indexed lp, PoolId indexed poolId, uint256 tokenId, uint128 liquidity);
-
     event LPTokenBurned(address indexed lp, PoolId indexed poolId, uint256 tokenId, uint128 liquidity);
-
     event LiquidityAdded(
         address indexed lp, PoolId indexed poolId, int24 tickLower, int24 tickUpper, uint128 liquidity
     );
-
     event LiquidityRemoved(address indexed lp, PoolId indexed poolId, uint128 liquidity);
 
     // ============ Errors ============

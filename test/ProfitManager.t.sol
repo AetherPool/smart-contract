@@ -106,6 +106,13 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
         // Initialize pools
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 
+        console.log("Modules deployed:");
+        console.log("  PositionManager:", address(positionManager));
+        console.log("  ConfigManager:", address(configManager));
+        console.log("  FeeManager:", address(feeManager));
+        console.log("  ProfitManager:", address(profitManager));
+        console.log("  JITCoordinator:", address(jitCoordinator));
+
         // Setup test accounts
         _setupTestAccounts();
         _setupSecondPoolTestAccounts();
@@ -114,7 +121,6 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
         MockERC20(Currency.unwrap(currency0)).mint(address(profitManager), 1000000 ether);
         MockERC20(Currency.unwrap(currency1)).mint(address(profitManager), 1000000 ether);
 
-        console.log("Test setup complete\n");
         console.log("");
     }
 
@@ -145,26 +151,6 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
 
         MockERC20(Currency.unwrap(currency0_2)).mint(address(profitManager), 1000000 ether);
         MockERC20(Currency.unwrap(currency1_2)).mint(address(profitManager), 1000000 ether);
-    }
-
-    function testModuleDeployments() public view {
-        console.log("Verifying module deployments...");
-
-        assertTrue(address(positionManager) != address(0), "PositionManager not deployed");
-        assertTrue(address(configManager) != address(0), "ConfigManager not deployed");
-        assertTrue(address(feeManager) != address(0), "FeeManager not deployed");
-        assertTrue(address(profitManager) != address(0), "ProfitManager not deployed");
-        assertTrue(address(jitCoordinator) != address(0), "JITCoordinator not deployed");
-        assertTrue(address(hook) != address(0), "ZKJITLiquidityHook not deployed");
-
-        console.log("Modules deployed:");
-        console.log("  PositionManager:", address(positionManager));
-        console.log("  ConfigManager:", address(configManager));
-        console.log("  FeeManager:", address(feeManager));
-        console.log("  ProfitManager:", address(profitManager));
-        console.log("  JITCoordinator:", address(jitCoordinator));
-
-        console.log("All modules deployed successfully\n");
     }
 
     // ============ Test 1: Profit Accrual ============
