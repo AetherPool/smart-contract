@@ -22,7 +22,6 @@ contract ProfitManager {
     mapping(PoolId => mapping(address => uint256)) public lpProfits0;
     mapping(PoolId => mapping(address => uint256)) public lpProfits1;
 
-    address public hook; // Main hook contract address
     address public positionManager; // Position manager contract
     address public configManager; // FHE config manager contract
 
@@ -44,17 +43,9 @@ contract ProfitManager {
     error InsufficientProfit();
     error ArrayLengthMismatch();
 
-    // ============ Modifiers ============
-
-    modifier onlyHook() {
-        if (msg.sender != hook) revert Unauthorized();
-        _;
-    }
-
     // ============ Constructor ============
 
-    constructor(address _hook, address _positionManager, address _configManager) {
-        hook = _hook;
+    constructor(address _positionManager, address _configManager) {
         positionManager = _positionManager;
         configManager = _configManager;
     }

@@ -28,8 +28,6 @@ contract FHEConfigManager {
 
     mapping(PoolId => mapping(address => LPConfig)) public lpConfigs;
 
-    address public hook; // Main hook contract address
-
     // FHE Constants
     euint128 private ENCRYPTED_ZERO;
     euint32 private ENCRYPTED_ZERO_32;
@@ -46,18 +44,9 @@ contract FHEConfigManager {
     error InvalidConfiguration();
     error DecryptionNotReady();
 
-    // ============ Modifiers ============
-
-    // modifier onlyHook() {
-    //     if (msg.sender != hook) revert Unauthorized();
-    //     _;
-    // }
-
     // ============ Constructor ============
 
-    constructor(address _hook) {
-        hook = _hook;
-
+    constructor() {
         // Initialize FHE constants
         ENCRYPTED_ZERO = FHE.asEuint128(0);
         ENCRYPTED_ZERO_32 = FHE.asEuint32(0);

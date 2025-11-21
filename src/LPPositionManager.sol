@@ -39,7 +39,6 @@ contract LPPositionManager {
     mapping(PoolId => mapping(address => bool)) public isLPRegistered;
 
     uint256 public nextTokenId = 1;
-    address public hook; // Main hook contract address
 
     // ============ Events ============
 
@@ -58,18 +57,9 @@ contract LPPositionManager {
     error InsufficientLiquidity();
     error PositionNotFound();
 
-    // ============ Modifiers ============
-
-    // modifier onlyHook() {
-    //     if (msg.sender != hook) revert Unauthorized();
-    //     _;
-    // }
-
     // ============ Constructor ============
 
-    constructor(address _hook) {
-        hook = _hook;
-    }
+    constructor() {}
 
     // ============ External Functions ============
 

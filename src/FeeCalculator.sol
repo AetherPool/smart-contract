@@ -107,18 +107,18 @@ contract FeeCalculator {
      * @param key Pool key
      * @param lp LP address
      * @param tokenId Position token ID
-     * @param tickLower Lower tick of position
-     * @param tickUpper Upper tick of position
      * @param liquidity Position liquidity
      * @return tokensOwed0 Fees owed in token0
      * @return tokensOwed1 Fees owed in token1
      */
+    //  * @param tickLower Lower tick of position
+    //  * @param tickUpper Upper tick of position
     function calculatePositionFees(
         PoolKey calldata key,
         address lp,
         uint256 tokenId,
-        int24 tickLower,
-        int24 tickUpper,
+        // int24 tickLower,
+        // int24 tickUpper,
         uint128 liquidity
     ) external view returns (uint256 tokensOwed0, uint256 tokensOwed1) {
         if (liquidity == 0) return (0, 0);
