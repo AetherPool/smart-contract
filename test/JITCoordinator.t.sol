@@ -56,9 +56,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     address public constant OWNER = address(0x9999);
 
     // Test swap amounts
-    uint128 public constant SMALL_SWAP = 500;    // Below threshold
-    uint128 public constant MEDIUM_SWAP = 2000;  // Triggers some LPs
-    uint128 public constant LARGE_SWAP = 5000;   // Triggers most LPs
+    uint128 public constant SMALL_SWAP = 500; // Below threshold
+    uint128 public constant MEDIUM_SWAP = 2000; // Triggers some LPs
+    uint128 public constant LARGE_SWAP = 5000; // Triggers most LPs
 
     // Events for tracking
     event JITRequested(uint256 indexed swapId, bytes32 indexed poolId, address indexed swapper, uint128 swapAmount);
@@ -224,8 +224,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         vm.warp(block.timestamp + 10);
 
         // Evaluate with swap above threshold
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 2000);
+        (address[] memory eligibleLPs, uint128[] memory contributions) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
 
         console.log("Evaluation for 2000 swap:");
         console.log("  Eligible LPs: %s", eligibleLPs.length);
@@ -250,8 +249,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Test with medium swap (should trigger LP1 only)
         console.log("\nTest 1: Medium swap (1000)");
-        (address[] memory eligibleLPs1, uint128[] memory contributions1) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 1000);
+        (address[] memory eligibleLPs1, uint128[] memory contributions1) = jitCoordinator.evaluateMultiLPJIT(key, 1000);
 
         console.log("  Eligible LPs: %s", eligibleLPs1.length);
         for (uint256 i = 0; i < eligibleLPs1.length; i++) {
@@ -260,8 +258,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Test with larger swap (should trigger LP1 and LP2)
         console.log("\nTest 2: Large swap (1500)");
-        (address[] memory eligibleLPs2, uint128[] memory contributions2) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 1500);
+        (address[] memory eligibleLPs2, uint128[] memory contributions2) = jitCoordinator.evaluateMultiLPJIT(key, 1500);
 
         console.log("  Eligible LPs: %s", eligibleLPs2.length);
         for (uint256 i = 0; i < eligibleLPs2.length; i++) {
@@ -270,8 +267,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Test with very large swap (should trigger all LPs)
         console.log("\nTest 3: Very large swap (5000)");
-        (address[] memory eligibleLPs3, uint128[] memory contributions3) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 5000);
+        (address[] memory eligibleLPs3, uint128[] memory contributions3) = jitCoordinator.evaluateMultiLPJIT(key, 5000);
 
         console.log("  Eligible LPs: %s", eligibleLPs3.length);
         for (uint256 i = 0; i < eligibleLPs3.length; i++) {
@@ -293,7 +289,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         // Evaluate eligible LPs
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         console.log("Eligible LPs for JIT: %s", eligibleLPs.length);
@@ -309,14 +305,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             vm.prank(HOOK);
             vm.expectEmit(true, true, true, true);
             emit JITRequested(1, keccak256(abi.encode(key)), TRADER, LARGE_SWAP);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             console.log("JIT created with swap ID: %s", swapId);
 
@@ -346,7 +336,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         // Evaluate and create JIT
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         console.log("Eligible LPs: %s", eligibleLPs.length);
@@ -359,14 +349,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             });
 
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             console.log("JIT created, swap ID: %s", swapId);
 
@@ -419,7 +403,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         // Create and execute JIT
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         if (eligibleLPs.length > 0) {
@@ -430,14 +414,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             });
 
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs[i]);
@@ -478,7 +456,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             for (uint256 i = 0; i < lps.length; i++) {
                 (uint256 finalProfit0, uint256 finalProfit1) = profitManager.getLPProfits(key, lps[i]);
                 console.log("LP %s final profits: %s, %s", lps[i], finalProfit0, finalProfit1);
-                
+
                 assertTrue(
                     finalProfit0 >= initialProfits0[i] || finalProfit1 >= initialProfits1[i],
                     "Profits should increase or stay same after JIT removal"
@@ -508,7 +486,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         for (uint256 i = 0; i < swapSizes.length; i++) {
             console.log("\nSwap size: %s", swapSizes[i]);
 
-            (address[] memory eligibleLPs, uint128[] memory contributions) = 
+            (address[] memory eligibleLPs, uint128[] memory contributions) =
                 jitCoordinator.evaluateMultiLPJIT(key, swapSizes[i]);
 
             console.log("  Eligible LPs: %s", eligibleLPs.length);
@@ -557,8 +535,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         vm.warp(block.timestamp + 10);
 
         // Evaluate JIT at current price
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 2000);
+        (address[] memory eligibleLPs, uint128[] memory contributions) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
 
         console.log("Eligible LPs with large swap: %s", eligibleLPs.length);
 
@@ -610,7 +587,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         _setupMultipleLPs();
 
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         if (eligibleLPs.length > 0) {
@@ -628,14 +605,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
             // Create JIT as hook
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs[i]);
@@ -691,19 +662,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Test double execution
         _setupMultipleLPs();
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         if (eligibleLPs.length > 0) {
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs[i]);
@@ -744,18 +709,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         console.log("Creating %s JIT operations...", numJITs);
 
         for (uint256 i = 0; i < numJITs; i++) {
-            (address[] memory eligibleLPs, uint128[] memory contributions) = 
+            (address[] memory eligibleLPs, uint128[] memory contributions) =
                 jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP + uint128(i * 1000));
 
             if (eligibleLPs.length > 0) {
                 vm.prank(HOOK);
                 swapIds[i] = jitCoordinator.createMultiLPJIT(
-                    key,
-                    TRADER,
-                    LARGE_SWAP + uint128(i * 1000),
-                    params,
-                    eligibleLPs,
-                    contributions
+                    key, TRADER, LARGE_SWAP + uint128(i * 1000), params, eligibleLPs, contributions
                 );
 
                 console.log("  JIT %s created, swap ID: %s", i + 1, swapIds[i]);
@@ -806,7 +766,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         _setupMultipleLPs();
 
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         console.log("Eligible LPs: %s", eligibleLPs.length);
@@ -829,14 +789,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
             // Create and execute JIT
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs[i]);
@@ -854,8 +808,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 console.log("LP %s profits: %s, %s", eligibleLPs[i], profit0, profit1);
 
                 assertTrue(
-                    profit0 > initialProfits0[i] || profit1 > initialProfits1[i],
-                    "Profits should increase after JIT"
+                    profit0 > initialProfits0[i] || profit1 > initialProfits1[i], "Profits should increase after JIT"
                 );
 
                 // Verify profit is proportional to contribution
@@ -869,8 +822,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             uint256[] memory profitsBeforeRemoval1 = new uint256[](eligibleLPs.length);
 
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
-                (profitsBeforeRemoval0[i], profitsBeforeRemoval1[i]) = 
-                    profitManager.getLPProfits(key, eligibleLPs[i]);
+                (profitsBeforeRemoval0[i], profitsBeforeRemoval1[i]) = profitManager.getLPProfits(key, eligibleLPs[i]);
             }
 
             vm.prank(HOOK);
@@ -881,8 +833,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 (uint256 finalProfit0, uint256 finalProfit1) = profitManager.getLPProfits(key, eligibleLPs[i]);
                 console.log("LP %s final: %s, %s", eligibleLPs[i], finalProfit0, finalProfit1);
 
-                uint256 bonusProfit = (finalProfit0 - profitsBeforeRemoval0[i]) + 
-                                     (finalProfit1 - profitsBeforeRemoval1[i]);
+                uint256 bonusProfit =
+                    (finalProfit0 - profitsBeforeRemoval0[i]) + (finalProfit1 - profitsBeforeRemoval1[i]);
                 console.log("  Bonus profit: %s", bonusProfit);
             }
         }
@@ -910,19 +862,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Create several JITs
         for (uint256 i = 0; i < 3; i++) {
-            (address[] memory eligibleLPs, uint128[] memory contributions) = 
+            (address[] memory eligibleLPs, uint128[] memory contributions) =
                 jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
             if (eligibleLPs.length > 0) {
                 vm.prank(HOOK);
-                uint256 swapId = jitCoordinator.createMultiLPJIT(
-                    key,
-                    TRADER,
-                    LARGE_SWAP,
-                    params,
-                    eligibleLPs,
-                    contributions
-                );
+                uint256 swapId =
+                    jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
                 console.log("Created JIT with swap ID: %s", swapId);
                 assertEq(swapId, initialNextId + i, "Swap ID should increment");
@@ -965,7 +911,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         vm.warp(block.timestamp + 10);
 
         // Should not be eligible
-        (address[] memory eligibleLPs, ) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
+        (address[] memory eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
 
         bool found = false;
         for (uint256 i = 0; i < eligibleLPs.length; i++) {
@@ -977,7 +923,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Test with very small swap
         _setupMultipleLPs();
-        (eligibleLPs, ) = jitCoordinator.evaluateMultiLPJIT(key, 100);
+        (eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, 100);
         console.log("Small swap evaluated: %s eligible LPs", eligibleLPs.length);
 
         // Test removal of already removed JIT (should be idempotent)
@@ -988,19 +934,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             });
 
-            (address[] memory eligibleLPs2, uint128[] memory contributions2) = 
+            (address[] memory eligibleLPs2, uint128[] memory contributions2) =
                 jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
             if (eligibleLPs2.length > 0) {
                 vm.prank(HOOK);
-                uint256 swapId = jitCoordinator.createMultiLPJIT(
-                    key,
-                    TRADER,
-                    LARGE_SWAP,
-                    params,
-                    eligibleLPs2,
-                    contributions2
-                );
+                uint256 swapId =
+                    jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs2, contributions2);
 
                 vm.prank(HOOK);
                 jitCoordinator.executeMultiLPJIT(swapId);
@@ -1027,7 +967,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         _setupMultipleLPs();
 
-        (address[] memory eligibleLPs, uint128[] memory contributions) = 
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
         if (eligibleLPs.length > 0) {
@@ -1038,14 +978,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             });
 
             vm.prank(HOOK);
-            uint256 swapId = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params,
-                eligibleLPs,
-                contributions
-            );
+            uint256 swapId =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params, eligibleLPs, contributions);
 
             // Test getPendingJIT
             JITCoordinator.PendingJIT memory pendingJIT = jitCoordinator.getPendingJIT(swapId);
@@ -1106,31 +1040,19 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         console.log("\n=== Phase 2: Small Swap (No JIT) ===");
-        (address[] memory eligibleLPs1, ) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 500);
+        (address[] memory eligibleLPs1,) = jitCoordinator.evaluateMultiLPJIT(key, 500);
         console.log("Swap 500: %s eligible LPs", eligibleLPs1.length);
 
         console.log("\n=== Phase 3: Medium Swap (Partial JIT) ===");
-        (address[] memory eligibleLPs2, uint128[] memory contributions2) = 
-            jitCoordinator.evaluateMultiLPJIT(key, 1500);
+        (address[] memory eligibleLPs2, uint128[] memory contributions2) = jitCoordinator.evaluateMultiLPJIT(key, 1500);
         console.log("Swap 1500: %s eligible LPs", eligibleLPs2.length);
 
         if (eligibleLPs2.length > 0) {
-            SwapParams memory params2 = SwapParams({
-                zeroForOne: true,
-                amountSpecified: -1500,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-            });
+            SwapParams memory params2 =
+                SwapParams({zeroForOne: true, amountSpecified: -1500, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1});
 
             vm.prank(HOOK);
-            uint256 swapId2 = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                1500,
-                params2,
-                eligibleLPs2,
-                contributions2
-            );
+            uint256 swapId2 = jitCoordinator.createMultiLPJIT(key, TRADER, 1500, params2, eligibleLPs2, contributions2);
 
             for (uint256 i = 0; i < eligibleLPs2.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs2[i]);
@@ -1153,7 +1075,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         }
 
         console.log("\n=== Phase 4: Large Swap (Full JIT) ===");
-        (address[] memory eligibleLPs3, uint128[] memory contributions3) = 
+        (address[] memory eligibleLPs3, uint128[] memory contributions3) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
         console.log("Swap %s: %s eligible LPs", LARGE_SWAP, eligibleLPs3.length);
 
@@ -1165,14 +1087,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             });
 
             vm.prank(HOOK);
-            uint256 swapId3 = jitCoordinator.createMultiLPJIT(
-                key,
-                TRADER,
-                LARGE_SWAP,
-                params3,
-                eligibleLPs3,
-                contributions3
-            );
+            uint256 swapId3 =
+                jitCoordinator.createMultiLPJIT(key, TRADER, LARGE_SWAP, params3, eligibleLPs3, contributions3);
 
             for (uint256 i = 0; i < eligibleLPs3.length; i++) {
                 configManager.decryptHedgePercentage(key, eligibleLPs3[i]);
