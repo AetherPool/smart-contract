@@ -20,6 +20,7 @@ import {DynamicFeeManager} from "../src/DynamicFeeManager.sol";
 import {ProfitManager} from "../src/ProfitManager.sol";
 import {JITCoordinator} from "../src/JITCoordinator.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
+import {FeeCalculator} from "../src/FeeCalculator.sol";
 
 // FHE imports
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
@@ -41,6 +42,7 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
     ProfitManager public profitManager;
     JITCoordinator public jitCoordinator;
     ZKJITLiquidityHook public hook;
+    FeeCalculator public feeCalculator;
 
     address public constant HOOK = address(0x1111);
     address public constant LP1 = address(0x2222);
@@ -81,12 +83,13 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
 
         // Deploy managers
         vm.startPrank(HOOK);
-        positionManager = new LPPositionManager(HOOK);
-        configManager = new FHEConfigManager(HOOK);
+        positionManager = new LPPositionManager();
+        configManager = new FHEConfigManager();
+        feeCalculator = new FeeCalculator();
         feeManager = new DynamicFeeManager(HOOK, OWNER);
-        profitManager = new ProfitManager(HOOK, address(positionManager), address(configManager));
+        profitManager = new ProfitManager(address(positionManager), address(configManager));
         jitCoordinator =
-            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager));
+            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager), address(feeCalculator));
         vm.stopPrank();
 
         deployCodeTo(
@@ -97,7 +100,8 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
                 address(configManager),
                 address(feeManager),
                 address(profitManager),
-                address(jitCoordinator)
+                address(jitCoordinator),
+                address(feeCalculator)
             ),
             hookAddress
         );
