@@ -60,10 +60,10 @@ contract LPPositionManager {
 
     // ============ Modifiers ============
 
-    modifier onlyHook() {
-        if (msg.sender != hook) revert Unauthorized();
-        _;
-    }
+    // modifier onlyHook() {
+    //     if (msg.sender != hook) revert Unauthorized();
+    //     _;
+    // }
 
     // ============ Constructor ============
 
@@ -145,7 +145,6 @@ contract LPPositionManager {
      */
     function removeLiquidity(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta, address withdrawer)
         external
-        onlyHook
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toId();
@@ -200,7 +199,6 @@ contract LPPositionManager {
      */
     function updatePositionFees(PoolId poolId, address lp, uint256 tokenId, uint256 fees0, uint256 fees1)
         external
-        onlyHook
     {
         LPPosition[] storage positions = lpPositions[poolId][lp];
 
