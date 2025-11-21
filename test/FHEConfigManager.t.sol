@@ -87,6 +87,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         console.log("  FeeManager:", address(feeManager));
         console.log("  ProfitManager:", address(profitManager));
         console.log("  JITCoordinator:", address(jitCoordinator));
+        console.log("  FeeCalculator:", address(feeCalculator));
 
         // ============ DEPLOY HOOK WITH MODULE ADDRESSES ============
 
@@ -98,7 +99,8 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
                 address(configManager),
                 address(feeManager),
                 address(profitManager),
-                address(jitCoordinator)
+                address(jitCoordinator),
+                address(feeCalculator)
             ),
             hookAddress
         );
