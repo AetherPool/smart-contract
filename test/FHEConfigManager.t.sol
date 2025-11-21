@@ -22,6 +22,7 @@ import {LPPositionManager} from "../src/LPPositionManager.sol";
 import {DynamicFeeManager} from "../src/DynamicFeeManager.sol";
 import {ProfitManager} from "../src/ProfitManager.sol";
 import {JITCoordinator} from "../src/JITCoordinator.sol";
+import {FeeCalculator} from "../src/FeeCalculator.sol";
 
 /**
  * @title FHEConfigManager Test Suite
@@ -35,6 +36,7 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
     DynamicFeeManager public feeManager;
     ProfitManager public profitManager;
     JITCoordinator public jitCoordinator;
+    FeeCalculator public feeCalculator;
     ZKJITLiquidityHook public hook;
 
     address public constant HOOK = address(0x1111);
@@ -67,16 +69,17 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
 
         // ============ DEPLOY MODULES FIRST ============
 
-        positionManager = new LPPositionManager(HOOK);
-        configManager = new FHEConfigManager(HOOK);
+        positionManager = new LPPositionManager();
+        configManager = new FHEConfigManager();
 
         vm.startPrank(HOOK); // Hook needs to be the caller so as to update moving average
         feeManager = new DynamicFeeManager(HOOK, OWNER);
         vm.stopPrank();
 
-        profitManager = new ProfitManager(HOOK, address(positionManager), address(configManager));
+        profitManager = new ProfitManager(address(positionManager), address(configManager));
+        feeCalculator = new FeeCalculator();
         jitCoordinator =
-            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager));
+            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager), address(feeCalculator));
 
         console.log("Modules deployed:");
         console.log("  PositionManager:", address(positionManager));

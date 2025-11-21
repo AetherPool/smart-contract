@@ -17,6 +17,7 @@ import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {BalanceDelta, toBalanceDelta} from "v4-core/types/BalanceDelta.sol";
 
 // Contracts under test
 import {FHEConfigManager} from "../src/FHEConfigManager.sol";
@@ -25,6 +26,7 @@ import {DynamicFeeManager} from "../src/DynamicFeeManager.sol";
 import {ProfitManager} from "../src/ProfitManager.sol";
 import {JITCoordinator} from "../src/JITCoordinator.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
+import {FeeCalculator} from "../src/FeeCalculator.sol";
 
 // FHE imports
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
@@ -46,6 +48,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     DynamicFeeManager public feeManager;
     ProfitManager public profitManager;
     JITCoordinator public jitCoordinator;
+    FeeCalculator public feeCalculator;
     ZKJITLiquidityHook public hook;
 
     address public constant HOOK = address(0x1111);
@@ -84,12 +87,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Deploy managers
         vm.startPrank(HOOK);
-        positionManager = new LPPositionManager(HOOK);
-        configManager = new FHEConfigManager(HOOK);
+        positionManager = new LPPositionManager();
+        configManager = new FHEConfigManager();
         feeManager = new DynamicFeeManager(HOOK, OWNER);
-        profitManager = new ProfitManager(HOOK, address(positionManager), address(configManager));
+        profitManager = new ProfitManager(address(positionManager), address(configManager));
+        feeCalculator = new FeeCalculator();
         jitCoordinator =
-            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager));
+            new JITCoordinator(manager, HOOK, address(positionManager), address(configManager), address(profitManager), address(feeCalculator));
         vm.stopPrank();
 
         deployCodeTo(
@@ -100,7 +104,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 address(configManager),
                 address(feeManager),
                 address(profitManager),
-                address(jitCoordinator)
+                address(jitCoordinator),
+                address(feeCalculator)
             ),
             hookAddress
         );
@@ -441,11 +446,14 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 console.log("LP %s initial profits: %s, %s", lps[i], initialProfits0[i], initialProfits1[i]);
             }
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             // Remove JIT
             vm.prank(HOOK);
             vm.expectEmit(true, true, true, true);
             emit JITRemoved(swapId, keccak256(abi.encode(key)));
-            jitCoordinator.removeJITLiquidity(key, swapId);
+            jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
 
             console.log("JIT removed");
 
@@ -623,10 +631,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId);
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             // Test unauthorized removeJITLiquidity
             vm.prank(TRADER);
             vm.expectRevert(JITCoordinator.Unauthorized.selector);
-            jitCoordinator.removeJITLiquidity(key, swapId);
+            jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
             console.log("Unauthorized removeJITLiquidity blocked");
         }
 
@@ -742,12 +753,15 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             }
         }
 
+        BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+        uint24 mockFee = 3000;
+
         // Remove all JITs
         console.log("\nRemoving JIT operations...");
         for (uint256 i = 0; i < numJITs; i++) {
             if (swapIds[i] > 0) {
                 vm.prank(HOOK);
-                jitCoordinator.removeJITLiquidity(key, swapIds[i]);
+                jitCoordinator.removeJITLiquidity(key, swapIds[i], mockDelta, mockFee);
                 console.log("  JIT %s removed", i + 1);
 
                 assertFalse(jitCoordinator.isJITActive(swapIds[i]), "JIT should be inactive");
@@ -825,8 +839,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 (profitsBeforeRemoval0[i], profitsBeforeRemoval1[i]) = profitManager.getLPProfits(key, eligibleLPs[i]);
             }
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             vm.prank(HOOK);
-            jitCoordinator.removeJITLiquidity(key, swapId);
+            jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
 
             console.log("\nAfter JIT removal:");
             for (uint256 i = 0; i < eligibleLPs.length; i++) {
@@ -937,6 +954,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             (address[] memory eligibleLPs2, uint128[] memory contributions2) =
                 jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             if (eligibleLPs2.length > 0) {
                 vm.prank(HOOK);
                 uint256 swapId =
@@ -946,11 +966,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 jitCoordinator.executeMultiLPJIT(swapId);
 
                 vm.prank(HOOK);
-                jitCoordinator.removeJITLiquidity(key, swapId);
+                jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
 
                 // Remove again (should be safe)
                 vm.prank(HOOK);
-                jitCoordinator.removeJITLiquidity(key, swapId);
+                jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
                 console.log("Double removal handled safely");
             }
         }
@@ -1017,9 +1037,12 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             console.log("\nisJITActive: %s", isActive);
             assertTrue(isActive, "Should return true for active JIT");
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             // Remove and test again
             vm.prank(HOOK);
-            jitCoordinator.removeJITLiquidity(key, swapId);
+            jitCoordinator.removeJITLiquidity(key, swapId, mockDelta, mockFee);
 
             isActive = jitCoordinator.isJITActive(swapId);
             console.log("isJITActive after removal: %s", isActive);
@@ -1069,8 +1092,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 console.log("  LP %s earned: %s, %s", eligibleLPs2[i], profit0, profit1);
             }
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             vm.prank(HOOK);
-            jitCoordinator.removeJITLiquidity(key, swapId2);
+            jitCoordinator.removeJITLiquidity(key, swapId2, mockDelta, mockFee);
             console.log("JIT removed");
         }
 
@@ -1111,8 +1137,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             }
             console.log("  Total contributions: %s", totalContribution);
 
+            BalanceDelta mockDelta = toBalanceDelta(int128(5000), int128(5000));
+            uint24 mockFee = 3000;
+
             vm.prank(HOOK);
-            jitCoordinator.removeJITLiquidity(key, swapId3);
+            jitCoordinator.removeJITLiquidity(key, swapId3, mockDelta, mockFee);
             console.log("JIT removed with bonus profits");
         }
 

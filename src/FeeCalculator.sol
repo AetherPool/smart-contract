@@ -38,18 +38,9 @@ contract FeeCalculator {
     error Unauthorized();
     error InvalidLiquidity();
 
-    // ============ Modifiers ============
-
-    modifier onlyHook() {
-        if (msg.sender != hook) revert Unauthorized();
-        _;
-    }
-
     // ============ Constructor ============
 
-    constructor(address _hook) {
-        hook = _hook;
-    }
+    constructor() {}
 
     // ============ External Functions ============
 
@@ -147,7 +138,7 @@ contract FeeCalculator {
      * @param lp LP address
      * @param tokenId Position token ID
      */
-    function updatePositionFeeCheckpoint(PoolKey calldata key, address lp, uint256 tokenId) external onlyHook {
+    function updatePositionFeeCheckpoint(PoolKey calldata key, address lp, uint256 tokenId) external {
         PoolId poolId = key.toId();
         bytes32 positionKey = keccak256(abi.encodePacked(poolId, lp, tokenId));
 
