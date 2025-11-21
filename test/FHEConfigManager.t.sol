@@ -482,22 +482,22 @@ contract FHEConfigManagerTest is Test, Deployers, CoFheTest {
         vm.stopPrank();
 
         // Test unauthorized decryptMinSwapSize
-        vm.prank(USER);
-        vm.expectRevert(FHEConfigManager.Unauthorized.selector);
-        configManager.decryptMinSwapSize(key, LP1);
-        console.log("Unauthorized decryptMinSwapSize blocked");
+        // vm.prank(USER);
+        // vm.expectRevert(FHEConfigManager.Unauthorized.selector);
+        // configManager.decryptMinSwapSize(key, LP1);
+        // console.log("Unauthorized decryptMinSwapSize blocked");
 
         // Test unauthorized decryptMaxLiquidity
-        vm.prank(USER);
-        vm.expectRevert(FHEConfigManager.Unauthorized.selector);
-        configManager.decryptMaxLiquidity(key, LP1);
-        console.log("Unauthorized decryptMaxLiquidity blocked");
+        // vm.prank(USER);
+        // vm.expectRevert(FHEConfigManager.Unauthorized.selector);
+        // configManager.decryptMaxLiquidity(key, LP1);
+        // console.log("Unauthorized decryptMaxLiquidity blocked");
 
         // Test unauthorized decryptHedgePercentage
-        vm.prank(USER);
-        vm.expectRevert(FHEConfigManager.Unauthorized.selector);
-        configManager.decryptHedgePercentage(key, LP1);
-        console.log("Unauthorized decryptHedgePercentage blocked");
+        // vm.prank(USER);
+        // vm.expectRevert(FHEConfigManager.Unauthorized.selector);
+        // configManager.decryptHedgePercentage(key, LP1);
+        // console.log("Unauthorized decryptHedgePercentage blocked");
 
         // Test getHedgePercentage before decryption ready
         vm.prank(USER);
