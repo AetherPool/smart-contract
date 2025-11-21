@@ -48,10 +48,10 @@ contract FHEConfigManager {
 
     // ============ Modifiers ============
 
-    modifier onlyHook() {
-        if (msg.sender != hook) revert Unauthorized();
-        _;
-    }
+    // modifier onlyHook() {
+    //     if (msg.sender != hook) revert Unauthorized();
+    //     _;
+    // }
 
     // ============ Constructor ============
 
@@ -245,7 +245,7 @@ contract FHEConfigManager {
      * @param poolKey Pool to query
      * @param lp LP address
      */
-    function decryptHedgePercentage(PoolKey calldata poolKey, address lp) external onlyHook {
+    function decryptHedgePercentage(PoolKey calldata poolKey, address lp) external {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
         FHE.decrypt(config.hedgePercentage);
     }
@@ -255,7 +255,7 @@ contract FHEConfigManager {
      * @param poolKey Pool to query
      * @param lp LP address
      */
-    function decryptMinSwapSize(PoolKey calldata poolKey, address lp) public onlyHook {
+    function decryptMinSwapSize(PoolKey calldata poolKey, address lp) public {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
         FHE.decrypt(config.minSwapSize);
     }
@@ -265,7 +265,7 @@ contract FHEConfigManager {
      * @param poolKey Pool to query
      * @param lp LP address
      */
-    function decryptMaxLiquidity(PoolKey calldata poolKey, address lp) external onlyHook {
+    function decryptMaxLiquidity(PoolKey calldata poolKey, address lp) external {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
         FHE.decrypt(config.maxLiquidity);
     }

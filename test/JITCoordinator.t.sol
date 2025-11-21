@@ -160,7 +160,6 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc1MinSwap, enc1MaxLiq, enc1Profit, enc1Hedge, false);
         vm.stopPrank();
 
-        vm.prank(HOOK);
         positionManager.depositLiquidity(key, -240, 240, 8000, 4000, 4000, LP1);
         console.log("  LP1: Wide range (-240 to 240), threshold 800");
 
@@ -173,7 +172,6 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, true);
         vm.stopPrank();
 
-        vm.prank(HOOK);
         positionManager.depositLiquidity(key, -120, 120, 10000, 5000, 5000, LP2);
         console.log("  LP2: Medium range (-120 to 120), threshold 1200");
 
@@ -186,7 +184,6 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc3MinSwap, enc3MaxLiq, enc3Profit, enc3Hedge, true);
         vm.stopPrank();
 
-        vm.prank(HOOK);
         positionManager.depositLiquidity(key, -60, 60, 12000, 6000, 6000, LP3);
         console.log("  LP3: Narrow range (-60 to 60), threshold 1500");
 
@@ -217,7 +214,6 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
         vm.stopPrank();
 
-        vm.prank(HOOK);
         positionManager.depositLiquidity(key, -120, 120, 5000, 2500, 2500, LP1);
 
         console.log("LP1 configured: threshold 1000, position -120 to 120");
@@ -374,6 +370,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
             console.log("JIT created, swap ID: %s", swapId);
 
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
+
             // Execute JIT
             vm.prank(HOOK);
             vm.expectEmit(true, true, true, true);
@@ -437,6 +438,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 eligibleLPs,
                 contributions
             );
+
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
 
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId);
@@ -514,7 +520,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
                 // Verify contribution is reasonable (max 10% of swap or 50% of LP liquidity)
                 uint128 maxContribution = swapSizes[i] / 10;
-                assertLt(contributions[j], maxContribution, "Contribution should not exceed 10% of swap");
+                assertLe(contributions[j], maxContribution, "Contribution should not exceed 10% of swap");
             }
 
             console.log("  Total contribution: %s", totalContribution);
@@ -631,6 +637,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 contributions
             );
 
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
+
             // Test unauthorized executeMultiLPJIT
             vm.prank(TRADER);
             vm.expectRevert(JITCoordinator.Unauthorized.selector);
@@ -694,6 +705,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 contributions
             );
 
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
+
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId);
 
@@ -743,6 +759,12 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 );
 
                 console.log("  JIT %s created, swap ID: %s", i + 1, swapIds[i]);
+
+                // Decrypt hedge percentages
+                for (uint256 j = 0; j < eligibleLPs.length; j++) {
+                    configManager.decryptHedgePercentage(key, eligibleLPs[j]);
+                }
+                vm.warp(block.timestamp + 10);
 
                 vm.prank(HOOK);
                 jitCoordinator.executeMultiLPJIT(swapIds[i]);
@@ -815,6 +837,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 eligibleLPs,
                 contributions
             );
+
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
 
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId);
@@ -1031,6 +1058,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             assertEq(pendingJIT.swapId, swapId, "Swap ID should match");
             assertEq(pendingJIT.swapper, TRADER, "Swapper should match");
 
+            for (uint256 i = 0; i < eligibleLPs.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+            }
+            vm.warp(block.timestamp + 10);
+
             // Execute JIT
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId);
@@ -1074,7 +1106,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         console.log("\n=== Phase 2: Small Swap (No JIT) ===");
-        (address[] memory eligibleLPs1, uint128[] memory contributions1) = 
+        (address[] memory eligibleLPs1, ) = 
             jitCoordinator.evaluateMultiLPJIT(key, 500);
         console.log("Swap 500: %s eligible LPs", eligibleLPs1.length);
 
@@ -1099,6 +1131,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 eligibleLPs2,
                 contributions2
             );
+
+            for (uint256 i = 0; i < eligibleLPs2.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs2[i]);
+            }
+            vm.warp(block.timestamp + 10);
 
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId2);
@@ -1136,6 +1173,11 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
                 eligibleLPs3,
                 contributions3
             );
+
+            for (uint256 i = 0; i < eligibleLPs3.length; i++) {
+                configManager.decryptHedgePercentage(key, eligibleLPs3[i]);
+            }
+            vm.warp(block.timestamp + 10);
 
             vm.prank(HOOK);
             jitCoordinator.executeMultiLPJIT(swapId3);

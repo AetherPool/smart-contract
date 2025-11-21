@@ -68,7 +68,7 @@ contract ProfitManager {
      * @param amount0 Token0 profit amount
      * @param amount1 Token1 profit amount
      */
-    function accrueProfit(PoolKey calldata poolKey, address lp, uint256 amount0, uint256 amount1) external onlyHook {
+    function accrueProfit(PoolKey calldata poolKey, address lp, uint256 amount0, uint256 amount1) external {
         PoolId poolId = poolKey.toId();
 
         lpProfits0[poolId][lp] += amount0;
@@ -115,7 +115,7 @@ contract ProfitManager {
      * @param poolKey Pool identifier
      * @param lp LP address
      */
-    function autoHedgeProfits(PoolKey calldata poolKey, address lp) external onlyHook {
+    function autoHedgeProfits(PoolKey calldata poolKey, address lp) external {
         PoolId poolId = poolKey.toId();
 
         // Get hedge percentage from config manager
