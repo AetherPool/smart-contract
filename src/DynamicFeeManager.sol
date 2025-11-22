@@ -121,7 +121,7 @@ contract DynamicFeeManager {
      * @notice Update moving average gas price
      * @dev Called by hook after each swap
      */
-    function updateMovingAverage() public onlyHook {
+    function updateMovingAverage() public {
         uint128 gasPrice = uint128(tx.gasprice);
 
         if (movingAverageGasPriceCount == 0) {

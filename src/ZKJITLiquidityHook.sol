@@ -9,7 +9,10 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
+import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
+import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
+import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/types/BeforeSwapDelta.sol";
 
 import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
 import {IFHEConfigManager} from "./interfaces/IFHEConfigManager.sol";
@@ -17,24 +20,19 @@ import {IDynamicFeeManager} from "./interfaces/IDynamicFeeManager.sol";
 import {IProfitManager} from "./interfaces/IProfitManager.sol";
 import {IJITCoordinator} from "./interfaces/IJITCoordinator.sol";
 import {IFeeCalculator} from "./interfaces/IFeeCalculator.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 /**
  * @title ZKJITLiquidityHook
- * @notice Main hook orchestrator for privacy-preserving JIT liquidity with real fee distribution
- * @dev Coordinates between all module contracts to provide multi-LP JIT with FHE encryption
- *
- * Key Features:
- * - Multi-LP JIT coordination with overlapping ranges
- * - FHE-encrypted LP parameters for strategy privacy
- * - Dynamic fee pricing based on gas conditions
- * - Real fee calculation and distribution from actual swaps
- * - Automated profit hedging and compounding
- * - Internal ERC-6909-style LP token management
+ * @notice Main hook orchestrator with JIT liquidity coordination
+ * @dev Simplified version using unlock pattern for JIT execution
  */
 contract ZKJITLiquidityHook is BaseHook {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
+    using CurrencyLibrary for Currency;
+    using CurrencySettler for Currency;
 
     // ============ Module Contracts ============
 
@@ -61,13 +59,34 @@ contract ZKJITLiquidityHook is BaseHook {
         address feeCalculator
     );
 
-    event SwapProcessed(PoolId indexed poolId, uint256 swapId, uint24 dynamicFee, uint256 eligibleLPs);
+    event HookSwap(
+        bytes32 indexed id,
+        address indexed sender,
+        int128 amount0,
+        int128 amount1,
+        uint128 hookLPfeeAmount0,
+        uint128 hookLPfeeAmount1
+    );
 
+    event SwapProcessed(PoolId indexed poolId, uint256 swapId, uint24 dynamicFee, uint256 eligibleLPs);
     event ActualFeesCollected(PoolId indexed poolId, uint256 swapId, uint256 fees0, uint256 fees1);
 
     // ============ Errors ============
 
     error MustUseDynamicFee();
+    error AddLiquidityThroughHook();
+
+    // ============ Callback Data ============
+
+    struct AddLiquidityCallbackData {
+        PoolKey poolKey;
+        address sender;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 amount0;
+        uint256 amount1;
+    }
 
     // ============ Constructor ============
 
@@ -98,7 +117,7 @@ contract ZKJITLiquidityHook is BaseHook {
         return Hooks.Permissions({
             beforeInitialize: true,
             afterInitialize: false,
-            beforeAddLiquidity: false,
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
@@ -118,180 +137,230 @@ contract ZKJITLiquidityHook is BaseHook {
         return this.beforeInitialize.selector;
     }
 
+    function _beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
+        internal
+        pure
+        override
+        returns (bytes4)
+    {
+        // LPs must add liquidity through our deposit system, not directly to the pool
+        revert AddLiquidityThroughHook();
+    }
+
+    // ============ Custom Add Liquidity Function ============
+    
+    /**
+     * @notice LPs deposit liquidity through this function
+     * @dev Stores liquidity as claim tokens in the hook to be used for JIT operations
+     * @param key Pool key
+     * @param tickLower Lower tick of position
+     * @param tickUpper Upper tick of position  
+     * @param liquidity Amount of liquidity
+     * @param amount0 Amount of token0 to deposit
+     * @param amount1 Amount of token1 to deposit
+     * @return tokenId The position token ID from LPPositionManager
+     */
+    function depositLiquidity(
+        PoolKey calldata key,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 liquidity,
+        uint256 amount0,
+        uint256 amount1
+    ) external returns (uint256 tokenId) {
+        bytes memory callbackData = abi.encode(
+            AddLiquidityCallbackData({
+                poolKey: key,
+                sender: msg.sender,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidity: liquidity,
+                amount0: amount0,
+                amount1: amount1
+            })
+        );
+        
+        bytes memory result = poolManager.unlock(callbackData);
+        tokenId = abi.decode(result, (uint256));
+        
+        return tokenId;
+    }
+
     // ============ Hook Implementation ============
 
     /**
      * @notice Hook called before swap execution
-     * @dev Evaluates JIT opportunities and applies dynamic fees
+     * @dev Evaluates JIT opportunities and returns delta for hook-managed swap
      */
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        // Calculate swap amount
         uint128 swapAmount =
             uint128(params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified));
 
-        // Evaluate multi-LP JIT participation
+        // Evaluate eligible LPs for JIT
         (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, swapAmount);
 
-        // If eligible LPs found, create and execute JIT
+        BeforeSwapDelta beforeSwapDelta =
+            toBeforeSwapDelta(int128(-params.amountSpecified), int128(params.amountSpecified));
+
         if (eligibleLPs.length > 0) {
+            // Create JIT operation
             uint256 swapId =
                 jitCoordinator.createMultiLPJIT(key, sender, swapAmount, params, eligibleLPs, contributions);
 
-            jitCoordinator.executeMultiLPJIT(swapId);
             currentSwapId = swapId;
+
+            // Handle the swap using hook's claim tokens
+            uint256 amountInOutPositive =
+                params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
+
+            if (params.zeroForOne) {
+                // User selling token0 for token1
+                // Hook takes claim tokens for token0 (receives from user)
+                key.currency0.take(poolManager, address(this), amountInOutPositive, true);
+                // Hook settles with claim tokens for token1 (pays to user)
+                key.currency1.settle(poolManager, address(this), amountInOutPositive, true);
+
+                emit HookSwap(
+                    PoolId.unwrap(key.toId()),
+                    msg.sender,
+                    -int128(uint128(amountInOutPositive)),
+                    int128(uint128(amountInOutPositive)),
+                    0,
+                    0
+                );
+            } else {
+                // User selling token1 for token0
+                // Hook settles with claim tokens for token0 (pays to user)
+                key.currency0.settle(poolManager, address(this), amountInOutPositive, true);
+                // Hook takes claim tokens for token1 (receives from user)
+                key.currency1.take(poolManager, address(this), amountInOutPositive, true);
+
+                emit HookSwap(
+                    PoolId.unwrap(key.toId()),
+                    msg.sender,
+                    int128(uint128(amountInOutPositive)),
+                    -int128(uint128(amountInOutPositive)),
+                    0,
+                    0
+                );
+            }
+
+            jitCoordinator.executeMultiLPJIT(swapId);
         }
 
-        // Get dynamic fee from fee manager
+        // Get dynamic fee
         (uint24 dynamicFee,) = feeManager.getFee();
         uint24 feeWithFlag = dynamicFee | LPFeeLibrary.OVERRIDE_FEE_FLAG;
-
-        // Store applied fee for use in afterSwap
         currentAppliedFee = dynamicFee;
 
         emit SwapProcessed(key.toId(), currentSwapId, dynamicFee, eligibleLPs.length);
 
-        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, feeWithFlag);
+        return (this.beforeSwap.selector, beforeSwapDelta, feeWithFlag);
+    }
+
+    /**
+     * @notice Callback for handling liquidity deposits and other unlock operations
+     * @dev Receives tokens from LP and mints claim tokens to the hook
+     */
+    function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
+        AddLiquidityCallbackData memory callbackData = abi.decode(data, (AddLiquidityCallbackData));
+
+        // Transfer tokens from sender to this contract first
+        IERC20(Currency.unwrap(callbackData.poolKey.currency0)).transferFrom(
+            callbackData.sender,
+            address(this),
+            callbackData.amount0
+        );
+        IERC20(Currency.unwrap(callbackData.poolKey.currency1)).transferFrom(
+            callbackData.sender,
+            address(this),
+            callbackData.amount1
+        );
+
+        // Approve PoolManager to spend tokens
+        IERC20(Currency.unwrap(callbackData.poolKey.currency0)).approve(
+            address(poolManager),
+            callbackData.amount0
+        );
+        IERC20(Currency.unwrap(callbackData.poolKey.currency1)).approve(
+            address(poolManager),
+            callbackData.amount1
+        );
+
+        // Settle tokens from hook to PoolManager (creates debit in PM)
+        callbackData.poolKey.currency0.settle(
+            poolManager,
+            address(this),
+            callbackData.amount0,
+            false // false = actually transfer tokens from hook to PM
+        );
+        callbackData.poolKey.currency1.settle(
+            poolManager,
+            address(this),
+            callbackData.amount1,
+            false
+        );
+
+        // Take claim tokens for the hook (creates credit in PM)
+        // This mints claim tokens to the hook
+        callbackData.poolKey.currency0.take(
+            poolManager,
+            address(this),
+            callbackData.amount0,
+            true // true = mint claim tokens to hook
+        );
+        callbackData.poolKey.currency1.take(
+            poolManager,
+            address(this),
+            callbackData.amount1,
+            true
+        );
+
+        // Register position with LPPositionManager
+        uint256 tokenId = positionManager.depositLiquidity(
+            callbackData.poolKey,
+            callbackData.tickLower,
+            callbackData.tickUpper,
+            callbackData.liquidity,
+            uint128(callbackData.amount0),
+            uint128(callbackData.amount1),
+            callbackData.sender
+        );
+
+        return abi.encode(tokenId);
     }
 
     /**
      * @notice Hook called after swap execution
-     * @dev Removes JIT liquidity, calculates and distributes actual fees
+     * @dev Removes JIT liquidity, calculates and distributes fees
      */
     function _afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta delta, bytes calldata)
         internal
         override
         returns (bytes4, int128)
     {
-        // Remove JIT liquidity and distribute actual fees if it was active
         if (currentSwapId > 0) {
-            // Pass the swap delta and applied fee to calculate real fees
             jitCoordinator.removeJITLiquidity(key, currentSwapId, delta, currentAppliedFee);
 
-            // Get fees that were distributed
             (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(currentSwapId);
-
             emit ActualFeesCollected(key.toId(), currentSwapId, fees0, fees1);
 
             currentSwapId = 0;
             currentAppliedFee = 0;
         }
 
-        // Update moving average gas price for next fee calculation
         feeManager.updateMovingAverage();
 
         return (this.afterSwap.selector, 0);
     }
 
-    // ============ User-Facing Functions ============
-
-    /**
-     * @notice Deposit liquidity and receive internal LP token
-     */
-    function depositLiquidityToHook(
-        PoolKey calldata poolKey,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 liquidityDelta,
-        uint128 amount0Max,
-        uint128 amount1Max
-    ) external returns (uint256 tokenId) {
-        return positionManager.depositLiquidity(
-            poolKey, tickLower, tickUpper, liquidityDelta, amount0Max, amount1Max, msg.sender
-        );
-    }
-
-    /**
-     * @notice Remove liquidity by burning internal LP token
-     */
-    function removeLiquidityFromHook(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta)
-        external
-        returns (uint128 amount0, uint128 amount1)
-    {
-        return positionManager.removeLiquidity(poolKey, tokenId, liquidityDelta, msg.sender);
-    }
-
-    /**
-     * @notice Configure LP's private JIT parameters using FHE encryption
-     */
-    function configureLPSettings(
-        PoolKey calldata poolKey,
-        InEuint128 calldata minSwapSize,
-        InEuint128 calldata maxLiquidity,
-        InEuint32 calldata profitThreshold,
-        InEuint32 calldata hedgePercentage,
-        bool autoHedgeEnabled
-    ) external {
-        configManager.configureLPSettings(
-            poolKey, minSwapSize, maxLiquidity, profitThreshold, hedgePercentage, autoHedgeEnabled
-        );
-    }
-
-    /**
-     * @notice Manually hedge LP profits
-     */
-    function hedgeProfits(PoolKey calldata poolKey, uint256 hedgePercentage) external {
-        profitManager.hedgeProfits(poolKey, hedgePercentage);
-    }
-
-    /**
-     * @notice Compound profits into new liquidity position
-     */
-    function compoundProfits(PoolKey calldata poolKey, int24 tickLower, int24 tickUpper)
-        external
-        returns (uint256 tokenId)
-    {
-        return profitManager.compoundProfits(poolKey, tickLower, tickUpper);
-    }
-
-    /**
-     * @notice Batch hedge profits across multiple pools
-     */
-    function batchHedgeProfits(PoolKey[] calldata poolKeys, uint256[] calldata hedgePercentages) external {
-        profitManager.batchHedgeProfits(poolKeys, hedgePercentages);
-    }
-
-    /**
-     * @notice Withdraw all accumulated profits
-     */
-    function withdrawProfits(PoolKey calldata poolKey) external {
-        profitManager.withdrawProfits(poolKey);
-    }
-
-    /**
-     * @notice Deactivate LP participation
-     */
-    function deactivateLP(PoolKey calldata poolKey) external {
-        configManager.deactivateLP(poolKey);
-    }
-
     // ============ View Functions ============
 
-    /**
-     * @notice Check if LP is active and get configuration
-     */
-    function getLPConfig(PoolKey calldata poolKey, address lp) external view returns (bool isActive) {
-        return configManager.isActive(poolKey, lp);
-    }
-
-    /**
-     * @notice Get LP profits for a pool
-     */
-    function getLPProfits(PoolKey calldata poolKey, address lp)
-        external
-        view
-        returns (uint256 profits0, uint256 profits1)
-    {
-        return profitManager.getLPProfits(poolKey, lp);
-    }
-
-    /**
-     * @notice Get module contract addresses
-     */
     function getModuleAddresses()
         external
         view
@@ -314,9 +383,6 @@ contract ZKJITLiquidityHook is BaseHook {
         );
     }
 
-    /**
-     * @notice Get current JIT position details including fees
-     */
     function getCurrentJITDetails(uint256 swapId)
         external
         view
@@ -327,8 +393,6 @@ contract ZKJITLiquidityHook is BaseHook {
             (uint256 f0, uint256 f1) = jitCoordinator.getJITFees(swapId);
             return (false, 0, f0, f1);
         }
-
-        // For active positions, fees are not yet calculated
         return (true, 0, 0, 0);
     }
 }

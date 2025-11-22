@@ -38,6 +38,8 @@ contract LPPositionManager {
     mapping(PoolId => address[]) public poolLPs;
     mapping(PoolId => mapping(address => bool)) public isLPRegistered;
 
+    address public hook; // Only hook can call depositLiquidity
+
     uint256 public nextTokenId = 1;
 
     // ============ Events ============
@@ -57,20 +59,30 @@ contract LPPositionManager {
     error InsufficientLiquidity();
     error PositionNotFound();
 
+    // ============ Modifiers ============
+
+    modifier onlyHook() {
+        if (msg.sender != hook) revert Unauthorized();
+        _;
+    }
+
     // ============ Constructor ============
 
-    constructor() {}
+    constructor(address _hook) {
+        hook = _hook;
+    }
 
     // ============ External Functions ============
 
     /**
      * @notice Deposit liquidity and receive internal LP token
+     * @dev Called by hook after receiving tokens from user
      * @param poolKey The pool to add liquidity to
      * @param tickLower Lower tick of position
      * @param tickUpper Upper tick of position
      * @param liquidityDelta Amount of liquidity to add
-     * @param amount0Max Maximum token0 to deposit
-     * @param amount1Max Maximum token1 to deposit
+     * @param amount0 Token0 deposited
+     * @param amount1 Token1 deposited
      * @param depositor Address depositing liquidity
      * @return tokenId Unique identifier for the LP position
      */
@@ -79,17 +91,13 @@ contract LPPositionManager {
         int24 tickLower,
         int24 tickUpper,
         uint128 liquidityDelta,
-        uint128 amount0Max,
-        uint128 amount1Max,
+        uint128 amount0,
+        uint128 amount1,
         address depositor
-    ) external returns (uint256 tokenId) {
+    ) external onlyHook returns (uint256 tokenId) {
         if (liquidityDelta == 0) revert InvalidLiquidity();
 
         PoolId poolId = poolKey.toId();
-
-        // Transfer tokens from depositor to this contract
-        IERC20(Currency.unwrap(poolKey.currency0)).transferFrom(depositor, address(this), amount0Max);
-        IERC20(Currency.unwrap(poolKey.currency1)).transferFrom(depositor, address(this), amount1Max);
 
         // Generate unique token ID
         tokenId = nextTokenId++;
@@ -100,8 +108,8 @@ contract LPPositionManager {
             tickLower: tickLower,
             tickUpper: tickUpper,
             liquidity: liquidityDelta,
-            token0Amount: amount0Max,
-            token1Amount: amount1Max,
+            token0Amount: amount0,
+            token1Amount: amount1,
             lastFeeGrowth0: 0,
             lastFeeGrowth1: 0,
             uncollectedFees0: 0,
@@ -135,6 +143,7 @@ contract LPPositionManager {
      */
     function removeLiquidity(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta, address withdrawer)
         external
+        onlyHook
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = poolKey.toId();
@@ -162,10 +171,6 @@ contract LPPositionManager {
                     positions[i].isActive = false;
                 }
 
-                // Transfer tokens back to withdrawer
-                IERC20(Currency.unwrap(poolKey.currency0)).transfer(withdrawer, amount0);
-                IERC20(Currency.unwrap(poolKey.currency1)).transfer(withdrawer, amount1);
-
                 emit LPTokenBurned(withdrawer, poolId, tokenId, liquidityDelta);
                 emit LiquidityRemoved(withdrawer, poolId, liquidityDelta);
 
@@ -189,6 +194,7 @@ contract LPPositionManager {
      */
     function updatePositionFees(PoolId poolId, address lp, uint256 tokenId, uint256 fees0, uint256 fees1)
         external
+        onlyHook
     {
         LPPosition[] storage positions = lpPositions[poolId][lp];
 
