@@ -190,7 +190,7 @@ contract ZKJITLiquidityHook is BaseHook {
 
     /**
      * @notice Hook called before swap execution
-     * @dev Evaluates JIT opportunities and returns delta for hook-managed swap
+     * @dev Evaluates JIT opportunities and creates JIT operation
      */
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
@@ -204,8 +204,8 @@ contract ZKJITLiquidityHook is BaseHook {
         (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, swapAmount);
 
-        BeforeSwapDelta beforeSwapDelta =
-            toBeforeSwapDelta(int128(-params.amountSpecified), int128(params.amountSpecified));
+        // Don't return a delta - let the swap happen normally
+        BeforeSwapDelta beforeSwapDelta = toBeforeSwapDelta(0, 0);
 
         if (eligibleLPs.length > 0) {
             // Create JIT operation
@@ -214,42 +214,7 @@ contract ZKJITLiquidityHook is BaseHook {
 
             currentSwapId = swapId;
 
-            // Handle the swap using hook's claim tokens
-            uint256 amountInOutPositive =
-                params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified);
-
-            if (params.zeroForOne) {
-                // User selling token0 for token1
-                // Hook takes claim tokens for token0 (receives from user)
-                key.currency0.take(poolManager, address(this), amountInOutPositive, true);
-                // Hook settles with claim tokens for token1 (pays to user)
-                key.currency1.settle(poolManager, address(this), amountInOutPositive, true);
-
-                emit HookSwap(
-                    PoolId.unwrap(key.toId()),
-                    msg.sender,
-                    -int128(uint128(amountInOutPositive)),
-                    int128(uint128(amountInOutPositive)),
-                    0,
-                    0
-                );
-            } else {
-                // User selling token1 for token0
-                // Hook settles with claim tokens for token0 (pays to user)
-                key.currency0.settle(poolManager, address(this), amountInOutPositive, true);
-                // Hook takes claim tokens for token1 (receives from user)
-                key.currency1.take(poolManager, address(this), amountInOutPositive, true);
-
-                emit HookSwap(
-                    PoolId.unwrap(key.toId()),
-                    msg.sender,
-                    int128(uint128(amountInOutPositive)),
-                    -int128(uint128(amountInOutPositive)),
-                    0,
-                    0
-                );
-            }
-
+            // Execute JIT liquidity addition
             jitCoordinator.executeMultiLPJIT(swapId);
         }
 
