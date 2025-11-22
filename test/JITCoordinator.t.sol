@@ -79,7 +79,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // ✅ STEP 1: Deploy positionManager FIRST with hook address
         positionManager = new LPPositionManager(hookAddress);
-        
+
         // ✅ STEP 2: Deploy other managers
         configManager = new FHEConfigManager();
         feeManager = new DynamicFeeManager(hookAddress, OWNER);
@@ -161,15 +161,15 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP1);
         configManager.configureLPSettings(key, enc1MinSwap, enc1MaxLiq, enc1Profit, enc1Hedge, false);
-        
-        // ✅ CHANGED: Call hook.depositLiquidity() instead of positionManager.depositLiquidity()
+
+        // Call hook.depositLiquidity() instead of positionManager.depositLiquidity()
         hook.depositLiquidity(
             key,
-            -240,  // tickLower
-            240,   // tickUpper
-            800,   // liquidity
-            400,   // amount0
-            400    // amount1
+            -240, // tickLower
+            240, // tickUpper
+            800, // liquidity
+            400, // amount0
+            400 // amount1
         );
         vm.stopPrank();
         console.log("  LP1: Wide range (-240 to 240), threshold 800");
@@ -182,15 +182,15 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP2);
         configManager.configureLPSettings(key, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, true);
-        
-        // ✅ CHANGED: Call hook.depositLiquidity()
+
+        // Call hook.depositLiquidity()
         hook.depositLiquidity(
             key,
-            -120,  // tickLower
-            120,   // tickUpper
-            1000,  // liquidity
-            500,   // amount0
-            500    // amount1
+            -120, // tickLower
+            120, // tickUpper
+            1000, // liquidity
+            500, // amount0
+            500 // amount1
         );
         vm.stopPrank();
         console.log("  LP2: Medium range (-120 to 120), threshold 1200");
@@ -203,15 +203,15 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP3);
         configManager.configureLPSettings(key, enc3MinSwap, enc3MaxLiq, enc3Profit, enc3Hedge, true);
-        
-        // ✅ CHANGED: Call hook.depositLiquidity()
+
+        // Call hook.depositLiquidity()
         hook.depositLiquidity(
             key,
-            -60,   // tickLower
-            60,    // tickUpper
-            1200,  // liquidity
-            600,   // amount0
-            600    // amount1
+            -60, // tickLower
+            60, // tickUpper
+            1200, // liquidity
+            600, // amount0
+            600 // amount1
         );
         vm.stopPrank();
         console.log("  LP3: Narrow range (-60 to 60), threshold 1500");
@@ -239,8 +239,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP1);
         configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
-        
-        // ✅ CHANGED: Call hook.depositLiquidity()
+
+        // Call hook.depositLiquidity()
         hook.depositLiquidity(key, -120, 120, 500, 250, 250);
         vm.stopPrank();
 
@@ -462,10 +462,10 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(LP1);
         configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
-        
+
         uint256 depositAmount0 = 1000;
         uint256 depositAmount1 = 1000;
-        
+
         // Deposit liquidity
         hook.depositLiquidity(key, -120, 120, 1000, depositAmount0, depositAmount1);
         vm.stopPrank();
@@ -474,16 +474,16 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         // The hook should have claim token balance equal to deposited amounts
         uint256 currency0Id = uint256(uint160(Currency.unwrap(currency0)));
         uint256 currency1Id = uint256(uint160(Currency.unwrap(currency1)));
-        
+
         uint256 hookBalance0 = manager.balanceOf(address(hook), currency0Id);
         uint256 hookBalance1 = manager.balanceOf(address(hook), currency1Id);
-        
+
         console.log("Hook claim token balance (currency0): %s", hookBalance0);
         console.log("Hook claim token balance (currency1): %s", hookBalance1);
-        
+
         assertEq(hookBalance0, depositAmount0, "Hook should have claim tokens for currency0");
         assertEq(hookBalance1, depositAmount1, "Hook should have claim tokens for currency1");
-        
+
         console.log("Hook successfully holds claim tokens for JIT operations\n");
     }
 }

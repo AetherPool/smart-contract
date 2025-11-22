@@ -143,18 +143,17 @@ contract ZKJITLiquidityHook is BaseHook {
         override
         returns (bytes4)
     {
-        // LPs must add liquidity through our deposit system, not directly to the pool
         revert AddLiquidityThroughHook();
     }
 
     // ============ Custom Add Liquidity Function ============
-    
+
     /**
      * @notice LPs deposit liquidity through this function
      * @dev Stores liquidity as claim tokens in the hook to be used for JIT operations
      * @param key Pool key
      * @param tickLower Lower tick of position
-     * @param tickUpper Upper tick of position  
+     * @param tickUpper Upper tick of position
      * @param liquidity Amount of liquidity
      * @param amount0 Amount of token0 to deposit
      * @param amount1 Amount of token1 to deposit
@@ -179,10 +178,10 @@ contract ZKJITLiquidityHook is BaseHook {
                 amount1: amount1
             })
         );
-        
+
         bytes memory result = poolManager.unlock(callbackData);
         tokenId = abi.decode(result, (uint256));
-        
+
         return tokenId;
     }
 
@@ -237,25 +236,15 @@ contract ZKJITLiquidityHook is BaseHook {
 
         // Transfer tokens from sender to this contract first
         IERC20(Currency.unwrap(callbackData.poolKey.currency0)).transferFrom(
-            callbackData.sender,
-            address(this),
-            callbackData.amount0
+            callbackData.sender, address(this), callbackData.amount0
         );
         IERC20(Currency.unwrap(callbackData.poolKey.currency1)).transferFrom(
-            callbackData.sender,
-            address(this),
-            callbackData.amount1
+            callbackData.sender, address(this), callbackData.amount1
         );
 
         // Approve PoolManager to spend tokens
-        IERC20(Currency.unwrap(callbackData.poolKey.currency0)).approve(
-            address(poolManager),
-            callbackData.amount0
-        );
-        IERC20(Currency.unwrap(callbackData.poolKey.currency1)).approve(
-            address(poolManager),
-            callbackData.amount1
-        );
+        IERC20(Currency.unwrap(callbackData.poolKey.currency0)).approve(address(poolManager), callbackData.amount0);
+        IERC20(Currency.unwrap(callbackData.poolKey.currency1)).approve(address(poolManager), callbackData.amount1);
 
         // Settle tokens from hook to PoolManager (creates debit in PM)
         callbackData.poolKey.currency0.settle(
@@ -264,12 +253,7 @@ contract ZKJITLiquidityHook is BaseHook {
             callbackData.amount0,
             false // false = actually transfer tokens from hook to PM
         );
-        callbackData.poolKey.currency1.settle(
-            poolManager,
-            address(this),
-            callbackData.amount1,
-            false
-        );
+        callbackData.poolKey.currency1.settle(poolManager, address(this), callbackData.amount1, false);
 
         // Take claim tokens for the hook (creates credit in PM)
         // This mints claim tokens to the hook
@@ -279,12 +263,7 @@ contract ZKJITLiquidityHook is BaseHook {
             callbackData.amount0,
             true // true = mint claim tokens to hook
         );
-        callbackData.poolKey.currency1.take(
-            poolManager,
-            address(this),
-            callbackData.amount1,
-            true
-        );
+        callbackData.poolKey.currency1.take(poolManager, address(this), callbackData.amount1, true);
 
         // Register position with LPPositionManager
         uint256 tokenId = positionManager.depositLiquidity(
