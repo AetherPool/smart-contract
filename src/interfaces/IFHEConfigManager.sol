@@ -12,7 +12,7 @@ interface IFHEConfigManager {
         InEuint32 calldata hedgePercentage1,
         bool autoHedgeEnabled
     ) external;
-    
+
     function getDepositedAmounts(PoolKey calldata poolKey, address lp)
         external
         view

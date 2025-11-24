@@ -19,7 +19,7 @@ contract DynamicFeeManager {
     uint256 public highGasThreshold = 110; // 110% of moving average
     uint256 public lowGasThreshold = 90; // 90% of moving average
 
-    address public hook; // Main hook contract address
+    address public hook;
     address public owner;
 
     // ============ Events ============
@@ -32,10 +32,9 @@ contract DynamicFeeManager {
     // ============ Enums ============
 
     enum FeeLevel {
-        LOW_GAS, // High fee period
-        NORMAL, // Base fee period
-        HIGH_GAS // Low fee period (incentivize trading)
-
+        LOW_GAS,
+        NORMAL,
+        HIGH_GAS
     }
 
     // ============ Errors ============
@@ -61,8 +60,6 @@ contract DynamicFeeManager {
     constructor(address _hook, address _owner) {
         hook = _hook;
         owner = _owner;
-
-        // Initialize with current gas price
         updateMovingAverage();
     }
 
@@ -70,26 +67,19 @@ contract DynamicFeeManager {
 
     /**
      * @notice Calculate dynamic fee based on current gas conditions
-     * @return fee The calculated fee in basis points
-     * @return level The fee level category
      */
     function getFee() external returns (uint24 fee, FeeLevel level) {
         uint128 gasPrice = uint128(tx.gasprice);
 
-        // Update moving average
         updateMovingAverage();
 
-        // Determine fee level
         if (gasPrice > (movingAverageGasPrice * highGasThreshold) / 100) {
-            // High gas: Lower fees to incentivize trading
             fee = highGasFee;
             level = FeeLevel.HIGH_GAS;
         } else if (gasPrice < (movingAverageGasPrice * lowGasThreshold) / 100) {
-            // Low gas: Higher fees to maximize LP returns
             fee = lowGasFee;
             level = FeeLevel.LOW_GAS;
         } else {
-            // Normal gas: Base fee
             fee = baseFee;
             level = FeeLevel.NORMAL;
         }
@@ -100,14 +90,11 @@ contract DynamicFeeManager {
     }
 
     /**
-     * @notice Get current fee without updating state (view function)
-     * @return fee The calculated fee in basis points
-     * @return level The fee level category
+     * @notice Get current fee without updating state
      */
     function getCurrentFee() external view returns (uint24 fee, FeeLevel level) {
         uint128 gasPrice = uint128(tx.gasprice);
 
-        // Determine fee level
         if (gasPrice > (movingAverageGasPrice * highGasThreshold) / 100) {
             return (highGasFee, FeeLevel.HIGH_GAS);
         } else if (gasPrice < (movingAverageGasPrice * lowGasThreshold) / 100) {
@@ -119,17 +106,14 @@ contract DynamicFeeManager {
 
     /**
      * @notice Update moving average gas price
-     * @dev Called by hook after each swap
      */
     function updateMovingAverage() public {
         uint128 gasPrice = uint128(tx.gasprice);
 
         if (movingAverageGasPriceCount == 0) {
-            // First initialization
             movingAverageGasPrice = gasPrice;
             movingAverageGasPriceCount = 1;
         } else {
-            // Update moving average
             movingAverageGasPrice =
                 ((movingAverageGasPrice * movingAverageGasPriceCount) + gasPrice) / (movingAverageGasPriceCount + 1);
             movingAverageGasPriceCount++;
@@ -142,15 +126,9 @@ contract DynamicFeeManager {
 
     /**
      * @notice Update fee parameters
-     * @param _baseFee New base fee
-     * @param _highGasFee New high gas fee
-     * @param _lowGasFee New low gas fee
      */
     function updateFeeParameters(uint24 _baseFee, uint24 _highGasFee, uint24 _lowGasFee) external onlyOwner {
         if (_baseFee == 0 || _highGasFee == 0 || _lowGasFee == 0) revert InvalidFee();
-
-        // highGas ==> Fee < baseFee (fee during high gas must be lower than base)
-        // lowGas ==> Fee > baseFee (fee during low gas must be higher than base)
         if (_highGasFee >= _baseFee || _lowGasFee <= _baseFee) revert InvalidFee();
 
         baseFee = _baseFee;
@@ -162,8 +140,6 @@ contract DynamicFeeManager {
 
     /**
      * @notice Update gas price thresholds
-     * @param _highGasThreshold New high gas threshold (percentage)
-     * @param _lowGasThreshold New low gas threshold (percentage)
      */
     function updateThresholds(uint256 _highGasThreshold, uint256 _lowGasThreshold) external onlyOwner {
         if (_highGasThreshold <= 100 || _lowGasThreshold >= 100) revert InvalidThreshold();
@@ -177,7 +153,6 @@ contract DynamicFeeManager {
 
     /**
      * @notice Transfer ownership
-     * @param newOwner New owner address
      */
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert Unauthorized();
@@ -186,38 +161,18 @@ contract DynamicFeeManager {
 
     // ============ View Functions ============
 
-    /**
-     * @notice Get current moving average and count
-     * @return average Current moving average gas price
-     * @return count Number of samples in moving average
-     */
     function getMovingAverageData() external view returns (uint128 average, uint104 count) {
         return (movingAverageGasPrice, movingAverageGasPriceCount);
     }
 
-    /**
-     * @notice Get all fee parameters
-     * @return _baseFee Base fee
-     * @return _highGasFee High gas fee
-     * @return _lowGasFee Low gas fee
-     */
     function getFeeParameters() external view returns (uint24 _baseFee, uint24 _highGasFee, uint24 _lowGasFee) {
         return (baseFee, highGasFee, lowGasFee);
     }
 
-    /**
-     * @notice Get threshold parameters
-     * @return _highGasThreshold High gas threshold
-     * @return _lowGasThreshold Low gas threshold
-     */
     function getThresholds() external view returns (uint256 _highGasThreshold, uint256 _lowGasThreshold) {
         return (highGasThreshold, lowGasThreshold);
     }
 
-    /**
-     * @notice Get current fee level based on gas price
-     * @return Current fee level
-     */
     function getCurrentFeeLevel() external view returns (FeeLevel) {
         uint128 gasPrice = uint128(tx.gasprice);
 

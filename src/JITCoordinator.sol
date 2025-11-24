@@ -135,11 +135,11 @@ contract JITCoordinator {
 
         // Count eligible LPs and total available liquidity
         address[] memory tempEligibleLPs = new address[](cache.allLPs.length);
-        
+
         for (uint256 i = 0; i < cache.allLPs.length; i++) {
             if (_isLPEligible(key, cache.allLPs[i], cache.poolId, cache.currentTick, swapAmount)) {
                 tempEligibleLPs[cache.eligibleCount] = cache.allLPs[i];
-                cache.totalAvailableLiquidity += 
+                cache.totalAvailableLiquidity +=
                     ILPPositionManager(positionManager).getTotalLiquidity(cache.poolId, cache.allLPs[i]);
                 cache.eligibleCount++;
             }
@@ -155,12 +155,8 @@ contract JITCoordinator {
 
         for (uint256 i = 0; i < cache.eligibleCount; i++) {
             eligibleLPs[i] = tempEligibleLPs[i];
-            contributions[i] = _calculateLPContribution(
-                cache.poolId, 
-                tempEligibleLPs[i], 
-                swapAmount, 
-                cache.totalAvailableLiquidity
-            );
+            contributions[i] =
+                _calculateLPContribution(cache.poolId, tempEligibleLPs[i], swapAmount, cache.totalAvailableLiquidity);
         }
 
         return (eligibleLPs, contributions);
@@ -339,22 +335,21 @@ contract JITCoordinator {
     /**
      * @notice Calculate LP's contribution to JIT operation
      */
-    function _calculateLPContribution(
-        PoolId poolId, 
-        address lp, 
-        uint128 swapAmount, 
-        uint128 totalAvailableLiquidity
-    ) private view returns (uint128) {
+    function _calculateLPContribution(PoolId poolId, address lp, uint128 swapAmount, uint128 totalAvailableLiquidity)
+        private
+        view
+        returns (uint128)
+    {
         if (totalAvailableLiquidity == 0) return 0;
-        
+
         uint128 lpLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
-        
+
         // Calculate proportional share: (swapAmount * lpLiquidity) / totalAvailableLiquidity
         uint256 lpShare = (uint256(swapAmount) * uint256(lpLiquidity)) / uint256(totalAvailableLiquidity);
-        
+
         // Cap at what LP actually has available
         uint128 contribution = lpShare > lpLiquidity ? lpLiquidity : uint128(lpShare);
-        
+
         return contribution;
     }
 
