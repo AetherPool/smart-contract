@@ -263,32 +263,6 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Emit hedge trigger event
-     */
-    function emitHedgeTrigger(
-        PoolKey calldata poolKey,
-        address lp,
-        uint256 profitAmount0,
-        uint256 profitAmount1,
-        bool isToken0Trigger,
-        bool isToken1Trigger
-    ) external {
-        PoolId poolId = poolKey.toId();
-        LPConfig memory config = lpConfigs[poolId][lp];
-
-        emit HedgeTriggered(
-            poolId,
-            lp,
-            profitAmount0,
-            profitAmount1,
-            config.depositedAmount0,
-            config.depositedAmount1,
-            isToken0Trigger,
-            isToken1Trigger
-        );
-    }
-
-    /**
      * @notice Calculate hedge percentage (simplified for demo)
      * @dev In production, decrypt only when needed and with proper access control
      * @param poolKey Pool to check

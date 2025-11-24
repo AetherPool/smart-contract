@@ -5,13 +5,12 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
 import {IFHEConfigManager} from "./interfaces/IFHEConfigManager.sol";
 
 /**
  * @title ProfitManager
- * @notice Manages LP profit tracking, hedging, and compounding operations
- * @dev Handles both manual and automatic profit management strategies
+ * @notice Manages LP profit tracking and withdrawal operations
+ * @dev Enhanced to track tokens separately and trigger hedge when either hits threshold
  */
 contract ProfitManager {
     using PoolIdLibrary for PoolKey;
@@ -22,42 +21,36 @@ contract ProfitManager {
     mapping(PoolId => mapping(address => uint256)) public lpProfits0;
     mapping(PoolId => mapping(address => uint256)) public lpProfits1;
 
-    address public positionManager; // Position manager contract
-    address public configManager; // FHE config manager contract
+    address public configManager;
 
     // ============ Events ============
 
-    event ProfitHedged(
-        address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 hedgePercentage
-    );
-    event ProfitCompounded(
-        address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1, uint256 newTokenId
-    );
     event ProfitAccrued(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
     event ProfitWithdrawn(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
+    event AutoHedgeExecuted(
+        address indexed lp,
+        PoolId indexed poolId,
+        uint256 amount0,
+        uint256 amount1,
+        bool token0Triggered,
+        bool token1Triggered
+    );
 
     // ============ Errors ============
 
-    error Unauthorized();
-    error InvalidPercentage();
     error InsufficientProfit();
-    error ArrayLengthMismatch();
+    error InvalidInput();
 
     // ============ Constructor ============
 
-    constructor(address _positionManager, address _configManager) {
-        positionManager = _positionManager;
+    constructor(address _configManager) {
         configManager = _configManager;
     }
 
     // ============ External Functions ============
 
     /**
-     * @notice Accrue profits to LP (called by hook after JIT operations)
-     * @param poolKey Pool identifier
-     * @param lp LP address
-     * @param amount0 Token0 profit amount
-     * @param amount1 Token1 profit amount
+     * @notice Accrue profits to LP (called by JITCoordinator after swaps)
      */
     function accrueProfit(PoolKey calldata poolKey, address lp, uint256 amount0, uint256 amount1) external {
         PoolId poolId = poolKey.toId();
@@ -69,116 +62,7 @@ contract ProfitManager {
     }
 
     /**
-     * @notice Manually hedge LP profits
-     * @param poolKey The pool to hedge profits from
-     * @param hedgePercentage Percentage of profits to hedge (0-100)
-     */
-    function hedgeProfits(PoolKey calldata poolKey, uint256 hedgePercentage) external {
-        if (hedgePercentage > 100) revert InvalidPercentage();
-
-        PoolId poolId = poolKey.toId();
-
-        uint256 profit0 = lpProfits0[poolId][msg.sender];
-        uint256 profit1 = lpProfits1[poolId][msg.sender];
-
-        if (profit0 == 0 && profit1 == 0) revert InsufficientProfit();
-
-        uint256 hedgeAmount0 = (profit0 * hedgePercentage) / 100;
-        uint256 hedgeAmount1 = (profit1 * hedgePercentage) / 100;
-
-        // Update tracked profits
-        lpProfits0[poolId][msg.sender] -= hedgeAmount0;
-        lpProfits1[poolId][msg.sender] -= hedgeAmount1;
-
-        // Transfer hedged amounts
-        if (hedgeAmount0 > 0) {
-            IERC20(Currency.unwrap(poolKey.currency0)).transfer(msg.sender, hedgeAmount0);
-        }
-        if (hedgeAmount1 > 0) {
-            IERC20(Currency.unwrap(poolKey.currency1)).transfer(msg.sender, hedgeAmount1);
-        }
-
-        emit ProfitHedged(msg.sender, poolId, hedgeAmount0, hedgeAmount1, hedgePercentage);
-    }
-
-    /**
-     * @notice Automatically hedge profits based on LP configuration
-     * @param poolKey Pool identifier
-     * @param lp LP address
-     */
-    function autoHedgeProfits(PoolKey calldata poolKey, address lp) external {
-        PoolId poolId = poolKey.toId();
-
-        // Get hedge percentage from config manager
-        // For demo: using 50% (in production, decrypt from FHE config)
-        // uint256 hedgePercentage = 50;
-
-        uint256 hedgePercentage = IFHEConfigManager(configManager).getHedgePercentage(poolKey, lp);
-
-        uint256 profit0 = lpProfits0[poolId][lp];
-        uint256 profit1 = lpProfits1[poolId][lp];
-
-        if (profit0 > 0 || profit1 > 0) {
-            uint256 hedgeAmount0 = (profit0 * hedgePercentage) / 100;
-            uint256 hedgeAmount1 = (profit1 * hedgePercentage) / 100;
-
-            // Update tracked profits
-            lpProfits0[poolId][lp] -= hedgeAmount0;
-            lpProfits1[poolId][lp] -= hedgeAmount1;
-
-            // Transfer hedged amounts (in production, handle properly)
-            if (hedgeAmount0 > 0) {
-                IERC20(Currency.unwrap(poolKey.currency0)).transfer(lp, hedgeAmount0);
-            }
-            if (hedgeAmount1 > 0) {
-                IERC20(Currency.unwrap(poolKey.currency1)).transfer(lp, hedgeAmount1);
-            }
-
-            emit ProfitHedged(lp, poolId, hedgeAmount0, hedgeAmount1, hedgePercentage);
-        }
-    }
-
-    /**
-     * @notice Compound profits into new liquidity position
-     * @param poolKey The pool to compound profits in
-     * @param tickLower Lower tick for new position
-     * @param tickUpper Upper tick for new position
-     */
-    function compoundProfits(PoolKey calldata poolKey, int24 tickLower, int24 tickUpper)
-        external
-        returns (uint256 tokenId)
-    {
-        PoolId poolId = poolKey.toId();
-
-        uint256 profit0 = lpProfits0[poolId][msg.sender];
-        uint256 profit1 = lpProfits1[poolId][msg.sender];
-
-        if (profit0 == 0 || profit1 == 0) revert InsufficientProfit();
-
-        // Reset profits
-        lpProfits0[poolId][msg.sender] = 0;
-        lpProfits1[poolId][msg.sender] = 0;
-
-        // Calculate liquidity from profits (simplified)
-        uint128 liquidityFromProfits = uint128((profit0 + profit1) / 2);
-
-        // Approve position manager to spend profits
-        IERC20(Currency.unwrap(poolKey.currency0)).approve(positionManager, profit0);
-        IERC20(Currency.unwrap(poolKey.currency1)).approve(positionManager, profit1);
-
-        // Create new position through position manager
-        tokenId = ILPPositionManager(positionManager).depositLiquidity(
-            poolKey, tickLower, tickUpper, liquidityFromProfits, uint128(profit0), uint128(profit1), msg.sender
-        );
-
-        emit ProfitCompounded(msg.sender, poolId, profit0, profit1, tokenId);
-
-        return tokenId;
-    }
-
-    /**
      * @notice Withdraw all accumulated profits
-     * @param poolKey The pool to withdraw profits from
      */
     function withdrawProfits(PoolKey calldata poolKey) external {
         PoolId poolId = poolKey.toId();
@@ -188,15 +72,12 @@ contract ProfitManager {
 
         if (profit0 == 0 && profit1 == 0) revert InsufficientProfit();
 
-        // Reset profits
-        lpProfits0[poolId][msg.sender] = 0;
-        lpProfits1[poolId][msg.sender] = 0;
-
-        // Transfer all profits
         if (profit0 > 0) {
+            lpProfits0[poolId][msg.sender] = 0;
             IERC20(Currency.unwrap(poolKey.currency0)).transfer(msg.sender, profit0);
         }
         if (profit1 > 0) {
+            lpProfits1[poolId][msg.sender] = 0;
             IERC20(Currency.unwrap(poolKey.currency1)).transfer(msg.sender, profit1);
         }
 
@@ -204,49 +85,76 @@ contract ProfitManager {
     }
 
     /**
-     * @notice Batch hedge profits across multiple pools
-     * @param poolKeys Array of pools to hedge
-     * @param hedgePercentages Array of hedge percentages
+     * @notice Withdraw partial profits
      */
-    function batchHedgeProfits(PoolKey[] calldata poolKeys, uint256[] calldata hedgePercentages) external {
-        if (poolKeys.length != hedgePercentages.length) revert ArrayLengthMismatch();
+    function withdrawPartialProfits(PoolKey calldata poolKey, uint256 amount0, uint256 amount1) external {
+        PoolId poolId = poolKey.toId();
 
-        for (uint256 i = 0; i < poolKeys.length; i++) {
-            if (hedgePercentages[i] > 100) revert InvalidPercentage();
+        uint256 availableProfit0 = lpProfits0[poolId][msg.sender];
+        uint256 availableProfit1 = lpProfits1[poolId][msg.sender];
 
-            PoolId poolId = poolKeys[i].toId();
-            uint256 profit0 = lpProfits0[poolId][msg.sender];
-            uint256 profit1 = lpProfits1[poolId][msg.sender];
-
-            if (profit0 > 0 || profit1 > 0) {
-                uint256 hedgeAmount0 = (profit0 * hedgePercentages[i]) / 100;
-                uint256 hedgeAmount1 = (profit1 * hedgePercentages[i]) / 100;
-
-                // Update tracked profits
-                lpProfits0[poolId][msg.sender] -= hedgeAmount0;
-                lpProfits1[poolId][msg.sender] -= hedgeAmount1;
-
-                // Transfer hedged amounts
-                if (hedgeAmount0 > 0) {
-                    IERC20(Currency.unwrap(poolKeys[i].currency0)).transfer(msg.sender, hedgeAmount0);
-                }
-                if (hedgeAmount1 > 0) {
-                    IERC20(Currency.unwrap(poolKeys[i].currency1)).transfer(msg.sender, hedgeAmount1);
-                }
-
-                emit ProfitHedged(msg.sender, poolId, hedgeAmount0, hedgeAmount1, hedgePercentages[i]);
-            }
+        if (amount0 > availableProfit0 || amount1 > availableProfit1) {
+            revert InsufficientProfit();
         }
+
+        if (availableProfit0 == 0 && availableProfit1 == 0) revert InsufficientProfit();
+
+        if (amount0 > 0) {
+            lpProfits0[poolId][msg.sender] -= amount0;
+            IERC20(Currency.unwrap(poolKey.currency0)).transfer(msg.sender, amount0);
+        }
+        if (amount1 > 0) {
+            lpProfits1[poolId][msg.sender] -= amount1;
+            IERC20(Currency.unwrap(poolKey.currency1)).transfer(msg.sender, amount1);
+        }
+
+        emit ProfitWithdrawn(msg.sender, poolId, amount0, amount1);
+    }
+
+    /**
+     * @notice Check and execute auto-hedge if threshold is met for either token
+     * @dev Called by JITCoordinator after fee distribution
+     */
+    function checkAndExecuteAutoHedge(PoolKey calldata poolKey, address lp) external {
+        PoolId poolId = poolKey.toId();
+
+        uint256 profit0 = lpProfits0[poolId][lp];
+        uint256 profit1 = lpProfits1[poolId][lp];
+
+        // Check if auto-hedge should trigger (either token)
+        bool shouldHedge = IFHEConfigManager(configManager).shouldAutoHedge(poolKey, lp, profit0, profit1);
+
+        if (shouldHedge) {
+            // Get which tokens triggered
+            (bool token0Triggered, bool token1Triggered) =
+                IFHEConfigManager(configManager).getHedgeTriggers(poolKey, lp, profit0, profit1);
+
+            // Transfer accumulated profits
+            if (token0Triggered) {
+                lpProfits0[poolId][lp] = 0;
+                IERC20(Currency.unwrap(poolKey.currency0)).transfer(lp, profit0);
+            }
+            if (token1Triggered) {
+                lpProfits1[poolId][lp] = 0;
+                IERC20(Currency.unwrap(poolKey.currency1)).transfer(lp, profit1);
+            }
+
+            emit AutoHedgeExecuted(lp, poolId, profit0, profit1, token0Triggered, token1Triggered);
+            emit ProfitWithdrawn(lp, poolId, profit0, profit1);
+        }
+    }
+
+    /**
+     * @notice Manually trigger hedge (withdraw all profits)
+     */
+    function manualHedge(PoolKey calldata poolKey) external {
+        this.withdrawProfits(poolKey);
     }
 
     // ============ View Functions ============
 
     /**
      * @notice Get LP profits for a pool
-     * @param poolKey Pool to query
-     * @param lp LP address
-     * @return profits0 Token0 profits
-     * @return profits1 Token1 profits
      */
     function getLPProfits(PoolKey calldata poolKey, address lp)
         external
@@ -259,10 +167,6 @@ contract ProfitManager {
 
     /**
      * @notice Get total profits across all pools for an LP
-     * @param poolKeys Array of pools to check
-     * @param lp LP address
-     * @return totalProfits0 Total token0 profits
-     * @return totalProfits1 Total token1 profits
      */
     function getTotalProfits(PoolKey[] calldata poolKeys, address lp)
         external
@@ -275,5 +179,40 @@ contract ProfitManager {
             totalProfits1 += lpProfits1[poolId][lp];
         }
         return (totalProfits0, totalProfits1);
+    }
+
+    /**
+     * @notice Check if LP's profits have reached auto-hedge threshold
+     */
+    function isAutoHedgeReady(PoolKey calldata poolKey, address lp) external view returns (bool) {
+        PoolId poolId = poolKey.toId();
+
+        uint256 profit0 = lpProfits0[poolId][lp];
+        uint256 profit1 = lpProfits1[poolId][lp];
+
+        return IFHEConfigManager(configManager).shouldAutoHedge(poolKey, lp, profit0, profit1);
+    }
+
+    /**
+     * @notice Get LP's profit percentage relative to deposit for each token
+     * @dev Returns percentages in basis points (1% = 100 basis points)
+     */
+    function getProfitPercentages(PoolKey calldata poolKey, address lp)
+        external
+        view
+        returns (uint256 percent0, uint256 percent1)
+    {
+        PoolId poolId = poolKey.toId();
+
+        (uint256 depositedAmount0, uint256 depositedAmount1) =
+            IFHEConfigManager(configManager).getDepositedAmounts(poolKey, lp);
+
+        uint256 profit0 = lpProfits0[poolId][lp];
+        uint256 profit1 = lpProfits1[poolId][lp];
+
+        percent0 = depositedAmount0 == 0 ? 0 : (profit0 * 10000) / depositedAmount0;
+        percent1 = depositedAmount1 == 0 ? 0 : (profit1 * 10000) / depositedAmount1;
+
+        return (percent0, percent1);
     }
 }
