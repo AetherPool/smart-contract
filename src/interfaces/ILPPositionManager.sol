@@ -25,4 +25,5 @@ interface ILPPositionManager {
         view
         returns (bool);
     function getPoolLPs(PoolKey calldata poolKey) external view returns (address[] memory);
+    function getJITEnabledLPs(PoolKey calldata poolKey) external view returns (address[] memory);
 }

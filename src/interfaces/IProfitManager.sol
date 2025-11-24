@@ -10,4 +10,5 @@ interface IProfitManager {
         external
         view
         returns (uint256 profits0, uint256 profits1);
+    function checkAndExecuteAutoHedge(PoolKey calldata poolKey, address lp) external;
 }

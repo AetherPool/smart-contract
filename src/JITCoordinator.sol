@@ -16,8 +16,8 @@ import {IFeeCalculator} from "./interfaces/IFeeCalculator.sol";
 
 /**
  * @title JITCoordinator
- * @notice Coordinates multi-LP Just-In-Time liquidity operations with real fee calculations
- * @dev Evaluates eligible LPs, calculates contributions, manages JIT positions, and distributes actual fees
+ * @notice Coordinates multi-LP Just-In-Time liquidity operations
+ * @dev Targets proportional LP contributions for swap coverage
  */
 contract JITCoordinator {
     using PoolIdLibrary for PoolKey;
@@ -49,7 +49,6 @@ contract JITCoordinator {
         uint128[] lpContributions;
         bool isActive;
         uint256 timestamp;
-        // Track fees collected
         uint256 totalFees0;
         uint256 totalFees1;
     }
@@ -59,6 +58,7 @@ contract JITCoordinator {
         int24 currentTick;
         address[] allLPs;
         uint256 eligibleCount;
+        uint128 totalAvailableLiquidity;
     }
 
     // ============ Storage ============
@@ -84,6 +84,7 @@ contract JITCoordinator {
     event JITMultiLPExecution(uint256 indexed swapId, address[] lps, uint128[] contributions);
     event JITRemoved(uint256 indexed swapId, PoolId indexed poolId, uint256 totalFees0, uint256 totalFees1);
     event JITFeesDistributed(uint256 indexed swapId, address indexed lp, uint256 fees0, uint256 fees1);
+    event InsufficientLiquidity(uint256 indexed swapId, uint128 required, uint128 available);
 
     // ============ Errors ============
 
@@ -91,13 +92,7 @@ contract JITCoordinator {
     error AlreadyExecuted();
     error InvalidSwapAmount();
     error NoEligibleLPs();
-
-    // ============ Modifiers ============
-
-    // modifier onlyHook() {
-    //     if (msg.sender != hook) revert Unauthorized();
-    //     _;
-    // }
+    error InsufficientJITLiquidity();
 
     // ============ Constructor ============
 
@@ -121,6 +116,7 @@ contract JITCoordinator {
 
     /**
      * @notice Evaluate which LPs should participate in JIT operation
+     * @dev Only considers JIT-enabled positions
      */
     function evaluateMultiLPJIT(PoolKey calldata key, uint128 swapAmount)
         external
@@ -131,29 +127,40 @@ contract JITCoordinator {
 
         EvaluationCache memory cache;
         cache.poolId = key.toId();
-        cache.allLPs = ILPPositionManager(positionManager).getPoolLPs(key);
+        cache.allLPs = ILPPositionManager(positionManager).getJITEnabledLPs(key);
         cache.eligibleCount = 0;
+        cache.totalAvailableLiquidity = 0;
 
         (, cache.currentTick,,) = poolManager.getSlot0(cache.poolId);
 
+        // Count eligible LPs and total available liquidity
         address[] memory tempEligibleLPs = new address[](cache.allLPs.length);
-        uint128[] memory tempContributions = new uint128[](cache.allLPs.length);
-
+        
         for (uint256 i = 0; i < cache.allLPs.length; i++) {
             if (_isLPEligible(key, cache.allLPs[i], cache.poolId, cache.currentTick, swapAmount)) {
                 tempEligibleLPs[cache.eligibleCount] = cache.allLPs[i];
-                tempContributions[cache.eligibleCount] =
-                    _calculateLPContribution(cache.poolId, cache.allLPs[i], swapAmount);
+                cache.totalAvailableLiquidity += 
+                    ILPPositionManager(positionManager).getTotalLiquidity(cache.poolId, cache.allLPs[i]);
                 cache.eligibleCount++;
             }
         }
 
+        if (cache.eligibleCount == 0) {
+            return (new address[](0), new uint128[](0));
+        }
+
+        // Calculate proportional contributions
         eligibleLPs = new address[](cache.eligibleCount);
         contributions = new uint128[](cache.eligibleCount);
 
         for (uint256 i = 0; i < cache.eligibleCount; i++) {
             eligibleLPs[i] = tempEligibleLPs[i];
-            contributions[i] = tempContributions[i];
+            contributions[i] = _calculateLPContribution(
+                cache.poolId, 
+                tempEligibleLPs[i], 
+                swapAmount, 
+                cache.totalAvailableLiquidity
+            );
         }
 
         return (eligibleLPs, contributions);
@@ -171,6 +178,17 @@ contract JITCoordinator {
         uint128[] memory contributions
     ) external returns (uint256 swapId) {
         if (eligibleLPs.length == 0) revert NoEligibleLPs();
+
+        uint128 totalJITLiquidity = 0;
+        for (uint256 i = 0; i < contributions.length; i++) {
+            totalJITLiquidity += contributions[i];
+        }
+
+        // Require at least 50% coverage
+        if (totalJITLiquidity < swapAmount / 2) {
+            emit InsufficientLiquidity(nextSwapId + 1, swapAmount, totalJITLiquidity);
+            revert InsufficientJITLiquidity();
+        }
 
         swapId = ++nextSwapId;
 
@@ -195,7 +213,6 @@ contract JITCoordinator {
 
     /**
      * @notice Execute multi-LP JIT operation
-     * @dev Records the JIT position (actual liquidity addition is done by the hook)
      */
     function executeMultiLPJIT(uint256 swapId) external {
         PendingJIT storage jit = pendingJITs[swapId];
@@ -211,10 +228,6 @@ contract JITCoordinator {
 
     /**
      * @notice Remove JIT liquidity after swap completion and distribute fees
-     * @param key Pool key
-     * @param swapId The JIT operation ID
-     * @param delta Balance delta from the swap (to calculate fees)
-     * @param appliedFee The fee tier that was applied
      */
     function removeJITLiquidity(PoolKey calldata key, uint256 swapId, BalanceDelta delta, uint24 appliedFee) external {
         JITLiquidityPosition storage position = jitPositions[swapId];
@@ -228,7 +241,6 @@ contract JITCoordinator {
         (uint256 totalFees0, uint256 totalFees1) =
             IFeeCalculator(feeCalculator).calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
 
-        // Store fees in position
         position.totalFees0 = totalFees0;
         position.totalFees1 = totalFees1;
 
@@ -261,7 +273,6 @@ contract JITCoordinator {
 
     /**
      * @notice Record JIT liquidity position for multiple LPs
-     * @dev The hook is responsible for the actual modifyLiquidity call
      */
     function _recordMultiLPJITPosition(
         PoolKey memory key,
@@ -312,14 +323,14 @@ contract JITCoordinator {
             );
 
             if (lpFees0 > 0 || lpFees1 > 0) {
-                // Accrue actual profits through profit manager
+                // Accrue profits through profit manager
                 IProfitManager(profitManager).accrueProfit(key, lp, lpFees0, lpFees1);
 
                 emit JITFeesDistributed(position.swapId, lp, lpFees0, lpFees1);
 
-                // Auto-hedge if enabled
+                // Check if auto-hedge should trigger
                 if (IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lp)) {
-                    IProfitManager(profitManager).autoHedgeProfits(key, lp);
+                    IProfitManager(profitManager).checkAndExecuteAutoHedge(key, lp);
                 }
             }
         }
@@ -328,13 +339,23 @@ contract JITCoordinator {
     /**
      * @notice Calculate LP's contribution to JIT operation
      */
-    function _calculateLPContribution(PoolId poolId, address lp, uint128 swapAmount) private view returns (uint128) {
-        uint128 totalLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
-
-        uint128 maxContribution = swapAmount / 10; // Max 10% of swap
-        uint128 lpCapacity = totalLiquidity / 2; // LP can contribute up to 50% of their liquidity
-
-        return maxContribution < lpCapacity ? maxContribution : lpCapacity;
+    function _calculateLPContribution(
+        PoolId poolId, 
+        address lp, 
+        uint128 swapAmount, 
+        uint128 totalAvailableLiquidity
+    ) private view returns (uint128) {
+        if (totalAvailableLiquidity == 0) return 0;
+        
+        uint128 lpLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
+        
+        // Calculate proportional share: (swapAmount * lpLiquidity) / totalAvailableLiquidity
+        uint256 lpShare = (uint256(swapAmount) * uint256(lpLiquidity)) / uint256(totalAvailableLiquidity);
+        
+        // Cap at what LP actually has available
+        uint128 contribution = lpShare > lpLiquidity ? lpLiquidity : uint128(lpShare);
+        
+        return contribution;
     }
 
     // ============ View Functions ============
@@ -355,12 +376,6 @@ contract JITCoordinator {
         return nextSwapId + 1;
     }
 
-    /**
-     * @notice Get total fees collected by a JIT position
-     * @param swapId Swap identifier
-     * @return fees0 Total fees in token0
-     * @return fees1 Total fees in token1
-     */
     function getJITFees(uint256 swapId) external view returns (uint256 fees0, uint256 fees1) {
         JITLiquidityPosition storage position = jitPositions[swapId];
         return (position.totalFees0, position.totalFees1);
