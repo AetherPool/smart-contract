@@ -19,11 +19,12 @@ interface ILPPositionManager {
         external
         returns (uint128 amount0, uint128 amount1);
 
-    function getTotalLiquidity(PoolId poolId, address lp) external view returns (uint128);
     function hasOverlappingPosition(PoolId poolId, address lp, int24 currentTick, int24 tickRange)
         external
         view
         returns (bool);
+
+    function getTotalLiquidity(PoolId poolId, address lp) external view returns (uint128);
     function getPoolLPs(PoolKey calldata poolKey) external view returns (address[] memory);
     function getJITEnabledLPs(PoolKey calldata poolKey) external view returns (address[] memory);
 }
