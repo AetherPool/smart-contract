@@ -178,10 +178,10 @@ contract FHEConfigManager {
         return lpConfigs[poolKey.toId()][lp];
     }
 
-    function getDepositedAmounts(PoolKey calldata poolKey, address lp) 
-        external 
-        view 
-        returns (uint256 amount0, uint256 amount1) 
+    function getDepositedAmounts(PoolKey calldata poolKey, address lp)
+        external
+        view
+        returns (uint256 amount0, uint256 amount1)
     {
         PoolId poolId = poolKey.toId();
         return (lpConfigs[poolId][lp].depositedAmount0, lpConfigs[poolId][lp].depositedAmount1);
@@ -202,19 +202,18 @@ contract FHEConfigManager {
      * @notice Check if profits should trigger auto-hedge (checks both tokens)
      * @dev Returns true if EITHER token hits its threshold
      */
-    function shouldAutoHedge(
-        PoolKey calldata poolKey, 
-        address lp, 
-        uint256 currentProfits0,
-        uint256 currentProfits1
-    ) external view returns (bool) {
+    function shouldAutoHedge(PoolKey calldata poolKey, address lp, uint256 currentProfits0, uint256 currentProfits1)
+        external
+        view
+        returns (bool)
+    {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
 
         if (!config.autoHedgeEnabled) return false;
 
         (uint32 hedgePercent0, bool hedge0Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage0);
         (uint32 hedgePercent1, bool hedge1Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage1);
-        
+
         if (!hedge0Decrypted || !hedge1Decrypted) revert DecryptionNotReady();
 
         bool token0Threshold = false;
@@ -236,19 +235,18 @@ contract FHEConfigManager {
     /**
      * @notice Get which token(s) triggered the hedge
      */
-    function getHedgeTriggers(
-        PoolKey calldata poolKey,
-        address lp,
-        uint256 currentProfits0,
-        uint256 currentProfits1
-    ) external view returns (bool token0Triggered, bool token1Triggered) {
+    function getHedgeTriggers(PoolKey calldata poolKey, address lp, uint256 currentProfits0, uint256 currentProfits1)
+        external
+        view
+        returns (bool token0Triggered, bool token1Triggered)
+    {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
 
         if (!config.autoHedgeEnabled) return (false, false);
 
         (uint32 hedgePercent0, bool hedge0Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage0);
         (uint32 hedgePercent1, bool hedge1Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage1);
-        
+
         if (!hedge0Decrypted || !hedge1Decrypted) revert DecryptionNotReady();
 
         if (config.depositedAmount0 > 0) {
@@ -277,7 +275,7 @@ contract FHEConfigManager {
     ) external {
         PoolId poolId = poolKey.toId();
         LPConfig memory config = lpConfigs[poolId][lp];
-        
+
         emit HedgeTriggered(
             poolId,
             lp,
