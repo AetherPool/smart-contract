@@ -9,11 +9,11 @@ interface ILPPositionManager {
         PoolKey calldata poolKey,
         int24 tickLower,
         int24 tickUpper,
-        uint128 liquidityDelta,
-        uint128 amount0Max,
-        uint128 amount1Max,
-        address depositor
-    ) external returns (uint256 tokenId);
+        uint128 amount0,
+        uint128 amount1,
+        address depositor,
+        bool isJITEnabled
+    ) external returns (uint256 tokenId, uint128 liquidity);
 
     function removeLiquidity(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta, address withdrawer)
         external
