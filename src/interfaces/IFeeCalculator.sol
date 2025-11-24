@@ -10,14 +10,10 @@ interface IFeeCalculator {
         external
         returns (uint256 fees0, uint256 fees1);
 
-    function calculatePositionFees(
-        PoolKey calldata key,
-        address lp,
-        uint256 tokenId,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 liquidity
-    ) external view returns (uint256 tokensOwed0, uint256 tokensOwed1);
+    function calculatePositionFees(PoolKey calldata key, address lp, uint256 tokenId, uint128 liquidity)
+        external
+        view
+        returns (uint256 tokensOwed0, uint256 tokensOwed1);
 
     function calculateJITFeeShare(uint256 totalFees0, uint256 totalFees1, uint128 lpLiquidity, uint128 totalLiquidity)
         external
