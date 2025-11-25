@@ -24,7 +24,22 @@ interface ILPPositionManager {
         view
         returns (bool);
 
+    function calculateLiquidityForAmounts(
+        PoolKey calldata poolKey,
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 amount0Desired,
+        uint256 amount1Desired
+    ) external view returns (uint128 liquidity, uint256 amount0, uint256 amount1);
+
+    function calculateAmountsForLiquidity(PoolKey calldata poolKey, int24 tickLower, int24 tickUpper, uint128 liquidity)
+        external
+        view
+        returns (uint256 amount0, uint256 amount1);
+
     function getTotalLiquidity(PoolId poolId, address lp) external view returns (uint128);
     function getPoolLPs(PoolKey calldata poolKey) external view returns (address[] memory);
     function getJITEnabledLPs(PoolKey calldata poolKey) external view returns (address[] memory);
+    function getCurrentPrice(PoolKey calldata poolKey) external view returns (uint160 sqrtPriceX96, int24 tick);
+    function getPriceRatio(PoolKey calldata poolKey) external view returns (uint256 ratio);
 }

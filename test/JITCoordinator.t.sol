@@ -77,13 +77,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         vm.txGasPrice(10 gwei);
 
-        // ✅ STEP 1: Deploy positionManager FIRST with hook address
-        positionManager = new LPPositionManager(hookAddress);
+        // ✅ UPDATED: Deploy positionManager with hook AND poolManager
+        positionManager = new LPPositionManager(hookAddress, address(manager), "Sample NFT");
 
-        // ✅ STEP 2: Deploy other managers
+        // Deploy other managers
         configManager = new FHEConfigManager();
         feeManager = new DynamicFeeManager(hookAddress, OWNER);
-        profitManager = new ProfitManager(address(positionManager), address(configManager));
+        profitManager = new ProfitManager(address(configManager));
         feeCalculator = new FeeCalculator();
         jitCoordinator = new JITCoordinator(
             manager,
@@ -94,7 +94,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             address(feeCalculator)
         );
 
-        // ✅ STEP 3: Deploy hook LAST with all addresses
+        // Deploy hook LAST with all addresses
         deployCodeTo(
             "ZKJITLiquidityHook.sol",
             abi.encode(
@@ -140,7 +140,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             MockERC20(Currency.unwrap(currency1)).mint(accounts[i], 100000 ether);
 
             vm.startPrank(accounts[i]);
-            // Approve hook to transfer tokens (hook will then transfer to PoolManager)
+            // Approve hook to transfer tokens
             MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
             MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
             // Also approve swap router
@@ -155,66 +155,61 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // ============ LP1: Wide range (-240 to 240) ============
         InEuint128 memory enc1MinSwap = createInEuint128(800, LP1);
-        InEuint128 memory enc1MaxLiq = createInEuint128(50000, LP1);
-        InEuint32 memory enc1Profit = createInEuint32(30, LP1);
-        InEuint32 memory enc1Hedge = createInEuint32(20, LP1);
+        InEuint32 memory enc1Hedge0 = createInEuint32(20, LP1); // 20% for token0
+        InEuint32 memory enc1Hedge1 = createInEuint32(25, LP1); // 25% for token1
 
         vm.startPrank(LP1);
-        configManager.configureLPSettings(key, enc1MinSwap, enc1MaxLiq, enc1Profit, enc1Hedge, false);
+        configManager.configureLPSettings(key, enc1MinSwap, enc1Hedge0, enc1Hedge1, false);
 
-        // Call hook.depositLiquidity() instead of positionManager.depositLiquidity()
-        hook.depositLiquidity(
+        // ✅ UPDATED: Use depositLiquidityWithAmounts (no liquidity param, returns liquidity)
+        (uint256 tokenId1, uint128 liquidity1,,) = hook.depositLiquidityWithAmounts(
             key,
             -240, // tickLower
             240, // tickUpper
-            800, // liquidity
-            400, // amount0
-            400 // amount1
+            400, // amount0Desired
+            400, // amount1Desired
+            true // isJITEnabled
         );
         vm.stopPrank();
-        console.log("  LP1: Wide range (-240 to 240), threshold 800");
+        console.log("  LP1: Wide range (-240 to 240), threshold 800, liquidity: %s, tokenId: %s", liquidity1, tokenId1);
 
         // ============ LP2: Medium range (-120 to 120) ============
         InEuint128 memory enc2MinSwap = createInEuint128(1200, LP2);
-        InEuint128 memory enc2MaxLiq = createInEuint128(60000, LP2);
-        InEuint32 memory enc2Profit = createInEuint32(35, LP2);
-        InEuint32 memory enc2Hedge = createInEuint32(40, LP2);
+        InEuint32 memory enc2Hedge0 = createInEuint32(40, LP2);
+        InEuint32 memory enc2Hedge1 = createInEuint32(35, LP2);
 
         vm.startPrank(LP2);
-        configManager.configureLPSettings(key, enc2MinSwap, enc2MaxLiq, enc2Profit, enc2Hedge, true);
+        configManager.configureLPSettings(key, enc2MinSwap, enc2Hedge0, enc2Hedge1, true);
 
-        // Call hook.depositLiquidity()
-        hook.depositLiquidity(
+        (uint256 tokenId2, uint128 liquidity2,,) = hook.depositLiquidityWithAmounts(
             key,
             -120, // tickLower
             120, // tickUpper
-            1000, // liquidity
-            500, // amount0
-            500 // amount1
+            500, // amount0Desired
+            500, // amount1Desired
+            true // isJITEnabled
         );
         vm.stopPrank();
-        console.log("  LP2: Medium range (-120 to 120), threshold 1200");
+        console.log("  LP2: Medium range (-120 to 120), threshold 1200, liquidity: %s, tokenId: %s", liquidity2, tokenId2);
 
         // ============ LP3: Narrow range (-60 to 60) ============
         InEuint128 memory enc3MinSwap = createInEuint128(1500, LP3);
-        InEuint128 memory enc3MaxLiq = createInEuint128(70000, LP3);
-        InEuint32 memory enc3Profit = createInEuint32(40, LP3);
-        InEuint32 memory enc3Hedge = createInEuint32(60, LP3);
+        InEuint32 memory enc3Hedge0 = createInEuint32(60, LP3);
+        InEuint32 memory enc3Hedge1 = createInEuint32(55, LP3);
 
         vm.startPrank(LP3);
-        configManager.configureLPSettings(key, enc3MinSwap, enc3MaxLiq, enc3Profit, enc3Hedge, true);
+        configManager.configureLPSettings(key, enc3MinSwap, enc3Hedge0, enc3Hedge1, true);
 
-        // Call hook.depositLiquidity()
-        hook.depositLiquidity(
+        (uint256 tokenId3, uint128 liquidity3,,) = hook.depositLiquidityWithAmounts(
             key,
             -60, // tickLower
             60, // tickUpper
-            1200, // liquidity
-            600, // amount0
-            600 // amount1
+            600, // amount0Desired
+            600, // amount1Desired
+            true // isJITEnabled
         );
         vm.stopPrank();
-        console.log("  LP3: Narrow range (-60 to 60), threshold 1500");
+        console.log("  LP3: Narrow range (-60 to 60), threshold 1500, liquidity: %s, tokenId: %s", liquidity3, tokenId3);
 
         // Trigger decryptions
         configManager.decryptMinSwapSize(key, LP1);
@@ -233,18 +228,24 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         console.log("---------------------------");
 
         InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
-        InEuint128 memory encMaxLiq = createInEuint128(50000, LP1);
-        InEuint32 memory encProfit = createInEuint32(30, LP1);
-        InEuint32 memory encHedge = createInEuint32(25, LP1);
+        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
+        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
 
         vm.startPrank(LP1);
-        configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
 
-        // Call hook.depositLiquidity()
-        hook.depositLiquidity(key, -120, 120, 500, 250, 250);
+        // ✅ UPDATED: Use new deposit function
+        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            250, 
+            250,
+            true // JIT enabled
+        );
         vm.stopPrank();
 
-        console.log("LP1 configured: threshold 1000, position -120 to 120");
+        console.log("LP1 configured: threshold 1000, position -120 to 120, liquidity: %s, tokenId: %s", liquidity, tokenId);
 
         configManager.decryptMinSwapSize(key, LP1);
         vm.warp(block.timestamp + 10);
@@ -314,7 +315,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             return;
         }
 
-        // Decrypt hedge percentages
+        // Decrypt hedge percentages (now separate for each token)
         for (uint256 i = 0; i < eligibleLPs.length; i++) {
             configManager.decryptHedgePercentage(key, eligibleLPs[i]);
         }
@@ -379,17 +380,23 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         console.log("--------------------------------");
 
         InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
-        InEuint128 memory encMaxLiq = createInEuint128(50000, LP1);
-        InEuint32 memory encProfit = createInEuint32(30, LP1);
-        InEuint32 memory encHedge = createInEuint32(25, LP1);
+        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
+        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
 
         vm.startPrank(LP1);
-        configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
         console.log("LP1 configured with threshold 1000");
 
-        // ✅ CHANGED: Deposit liquidity through hook
-        hook.depositLiquidity(key, -120, 120, 500, 250, 250);
-        console.log("LP1 deposited liquidity: -120 to 120, 500 units");
+        // ✅ UPDATED: Use new deposit function
+        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            250, 
+            250,
+            true // JIT enabled
+        );
+        console.log("LP1 deposited liquidity: -120 to 120, %s units, tokenId: %s", liquidity, tokenId);
         vm.stopPrank();
 
         // Verify LP is active
@@ -456,22 +463,29 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         console.log("------------------------------------");
 
         InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
-        InEuint128 memory encMaxLiq = createInEuint128(50000, LP1);
-        InEuint32 memory encProfit = createInEuint32(30, LP1);
-        InEuint32 memory encHedge = createInEuint32(25, LP1);
+        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
+        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
 
         vm.startPrank(LP1);
-        configManager.configureLPSettings(key, encMinSwap, encMaxLiq, encProfit, encHedge, false);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
 
         uint256 depositAmount0 = 1000;
         uint256 depositAmount1 = 1000;
 
-        // Deposit liquidity
-        hook.depositLiquidity(key, -120, 120, 1000, depositAmount0, depositAmount1);
+        // ✅ UPDATED: Use new deposit function (JIT enabled to create claim tokens)
+        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            depositAmount0, 
+            depositAmount1,
+            true // JIT enabled = claim tokens in hook
+        );
         vm.stopPrank();
 
+        console.log("Deposited: tokenId %s, liquidity %s", tokenId, liquidity);
+
         // Check that hook received claim tokens (ERC-6909)
-        // The hook should have claim token balance equal to deposited amounts
         uint256 currency0Id = uint256(uint160(Currency.unwrap(currency0)));
         uint256 currency1Id = uint256(uint160(Currency.unwrap(currency1)));
 
@@ -485,5 +499,105 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         assertEq(hookBalance1, depositAmount1, "Hook should have claim tokens for currency1");
 
         console.log("Hook successfully holds claim tokens for JIT operations\n");
+    }
+
+    // ============ Test 7: ERC1155 Token Minting ============
+
+    function testERC1155TokenMinting() public {
+        console.log("TEST 7: ERC1155 Token Minting");
+        console.log("-----------------------------");
+
+        InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
+        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
+        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
+
+        vm.startPrank(LP1);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
+
+        // Deposit liquidity
+        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            500, 
+            500,
+            true
+        );
+        vm.stopPrank();
+
+        console.log("TokenId minted: %s, liquidity: %s", tokenId, liquidity);
+
+        // Check ERC1155 balance
+        uint256 balance = positionManager.balanceOf(LP1, tokenId);
+        assertEq(balance, 1, "LP1 should have 1 ERC1155 token");
+        console.log("LP1 ERC1155 balance: %s", balance);
+
+        // Verify ownership
+        address owner = positionManager.getTokenOwner(key, tokenId);
+        assertEq(owner, LP1, "Token owner should be LP1");
+        console.log("Token owner verified: %s", owner);
+
+        console.log("ERC1155 token minting successful\n");
+    }
+
+    // ============ Test 8: Passive vs Active Liquidity ============
+
+    function testPassiveVsActiveLiquidity() public {
+        console.log("TEST 8: Passive vs Active Liquidity");
+        console.log("-----------------------------------");
+
+        InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
+        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
+        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
+
+        // LP1: Passive liquidity
+        vm.startPrank(LP1);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
+        (uint256 passiveTokenId, uint128 passiveLiq,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            500, 
+            500,
+            false // Passive
+        );
+        vm.stopPrank();
+        console.log("LP1 (passive): tokenId %s, liquidity %s", passiveTokenId, passiveLiq);
+
+        // LP2: Active JIT liquidity
+        vm.startPrank(LP2);
+        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
+        (uint256 activeTokenId, uint128 activeLiq,,) = hook.depositLiquidityWithAmounts(
+            key, 
+            -120, 
+            120, 
+            500, 
+            500,
+            true // Active JIT
+        );
+        vm.stopPrank();
+        console.log("LP2 (active): tokenId %s, liquidity %s", activeTokenId, activeLiq);
+
+        configManager.decryptMinSwapSize(key, LP1);
+        configManager.decryptMinSwapSize(key, LP2);
+        vm.warp(block.timestamp + 10);
+
+        // Evaluate for JIT - only LP2 should be eligible
+        (address[] memory eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
+        
+        console.log("Eligible LPs for JIT: %s", eligibleLPs.length);
+        
+        // Only active JIT positions should be eligible
+        bool lp1Found = false;
+        bool lp2Found = false;
+        for (uint256 i = 0; i < eligibleLPs.length; i++) {
+            if (eligibleLPs[i] == LP1) lp1Found = true;
+            if (eligibleLPs[i] == LP2) lp2Found = true;
+        }
+
+        assertFalse(lp1Found, "LP1 (passive) should NOT be eligible for JIT");
+        assertTrue(lp2Found, "LP2 (active) should be eligible for JIT");
+
+        console.log("Passive vs Active liquidity distinction working correctly\n");
     }
 }
