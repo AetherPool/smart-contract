@@ -5,6 +5,18 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 interface ILPPositionManager {
+    struct LPPosition {
+        uint256 tokenId;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint128 token0Amount;
+        uint128 token1Amount;
+        bool isActive;
+        bool isJITEnabled;
+        uint256 depositTimestamp;
+    }
+
     function addLiquidity(
         PoolKey calldata poolKey,
         int24 tickLower,
@@ -36,6 +48,11 @@ interface ILPPositionManager {
         external
         view
         returns (uint256 amount0, uint256 amount1);
+
+    function getPosition(PoolKey calldata poolKey, address lp, uint256 tokenId)
+        external
+        view
+        returns (LPPosition memory);
 
     function getTotalLiquidity(PoolId poolId, address lp) external view returns (uint128);
     function getPoolLPs(PoolKey calldata poolKey) external view returns (address[] memory);
