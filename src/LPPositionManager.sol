@@ -105,7 +105,7 @@ contract LPPositionManager is ERC1155 {
      * @return tokenId Unique identifier for the LP position
      * @return liquidity Calculated liquidity amount
      */
-    function depositLiquidity(
+    function addLiquidity(
         PoolKey calldata poolKey,
         int24 tickLower,
         int24 tickUpper,

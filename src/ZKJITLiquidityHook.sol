@@ -89,6 +89,13 @@ contract ZKJITLiquidityHook is BaseHook {
         bool isJITEnabled;
     }
 
+    struct RemoveLiquidityCallbackData {
+        PoolKey poolKey;
+        address withdrawer;
+        uint256 tokenId;
+        uint128 liquidityDelta;
+    }
+
     struct SwapCallbackData {
         PoolKey poolKey;
         SwapParams params;
@@ -189,47 +196,6 @@ contract ZKJITLiquidityHook is BaseHook {
         emit LiquidityDeposited(msg.sender, key.toId(), tokenId, liquidity, amount0, amount1, isJITEnabled);
 
         return (tokenId, liquidity, amount0, amount1);
-    }
-
-    /**
-     * @notice Deposit liquidity with specified liquidity amount (TO BE MADE REDUNDANT FOR NOW)
-     * @param key Pool key
-     * @param tickLower Lower tick of position
-     * @param tickUpper Upper tick of position
-     * @param liquidity Liquidity amount
-     * @param isJITEnabled True for active JIT, false for passive liquidity
-     * @return tokenId The position token ID
-     * @return amount0 Amount of token0 needed
-     * @return amount1 Amount of token1 needed
-     */
-    function depositLiquidityWithLiquidity(
-        PoolKey calldata key,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 liquidity,
-        bool isJITEnabled
-    ) external returns (uint256 tokenId, uint256 amount0, uint256 amount1) {
-        // Calculate required token amounts for the specified liquidity
-        (amount0, amount1) = positionManager.calculateAmountsForLiquidity(key, tickLower, tickUpper, liquidity);
-
-        bytes memory callbackData = abi.encode(
-            AddLiquidityCallbackData({
-                poolKey: key,
-                sender: msg.sender,
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                amount0: amount0,
-                amount1: amount1,
-                isJITEnabled: isJITEnabled
-            })
-        );
-
-        bytes memory result = poolManager.unlock(callbackData);
-        (tokenId,) = abi.decode(result, (uint256, uint128));
-
-        emit LiquidityDeposited(msg.sender, key.toId(), tokenId, liquidity, amount0, amount1, isJITEnabled);
-
-        return (tokenId, amount0, amount1);
     }
 
     // ============ Hook Implementation ============
@@ -355,7 +321,7 @@ contract ZKJITLiquidityHook is BaseHook {
         }
 
         // Register position with LPPositionManager (it calculates liquidity internally)
-        (uint256 tokenId, uint128 calculatedLiquidity) = positionManager.depositLiquidity(
+        (uint256 tokenId, uint128 calculatedLiquidity) = positionManager.addLiquidity(
             callbackData.poolKey,
             callbackData.tickLower,
             callbackData.tickUpper,
