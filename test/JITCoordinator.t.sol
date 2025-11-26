@@ -60,7 +60,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     // Test swap amounts
     uint128 public constant SMALL_SWAP = 500;
     uint128 public constant MEDIUM_SWAP = 2000;
-    uint128 public constant LARGE_SWAP = 5000;
+    uint128 public constant LARGE_SWAP = 50000;
 
     function setUp() public {
         console.log("=== JITCoordinator Test Setup ===");
@@ -70,8 +70,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Calculate hook address with required permissions
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
-                | Hooks.AFTER_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
         address hookAddress = address(flags);
 
@@ -146,6 +146,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             // Also approve swap router
             MockERC20(Currency.unwrap(currency0)).approve(address(swapRouter), type(uint256).max);
             MockERC20(Currency.unwrap(currency1)).approve(address(swapRouter), type(uint256).max);
+
+            MockERC20(Currency.unwrap(currency0)).approve(address(manager), type(uint256).max);
+            MockERC20(Currency.unwrap(currency1)).approve(address(manager), type(uint256).max);
             vm.stopPrank();
         }
     }
@@ -190,7 +193,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             true // isJITEnabled
         );
         vm.stopPrank();
-        console.log("  LP2: Medium range (-120 to 120), threshold 1200, liquidity: %s, tokenId: %s", liquidity2, tokenId2);
+        console.log(
+            "  LP2: Medium range (-120 to 120), threshold 1200, liquidity: %s, tokenId: %s", liquidity2, tokenId2
+        );
 
         // ============ LP3: Narrow range (-60 to 60) ============
         InEuint128 memory enc3MinSwap = createInEuint128(1500, LP3);
@@ -236,16 +241,18 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // ✅ UPDATED: Use new deposit function
         (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            250, 
+            key,
+            -120,
+            120,
+            250,
             250,
             true // JIT enabled
         );
         vm.stopPrank();
 
-        console.log("LP1 configured: threshold 1000, position -120 to 120, liquidity: %s, tokenId: %s", liquidity, tokenId);
+        console.log(
+            "LP1 configured: threshold 1000, position -120 to 120, liquidity: %s, tokenId: %s", liquidity, tokenId
+        );
 
         configManager.decryptMinSwapSize(key, LP1);
         vm.warp(block.timestamp + 10);
@@ -344,6 +351,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
 
         console.log("Executing swap for %s tokens...", LARGE_SWAP);
+        vm.prank(TRADER);
         swapRouter.swap(key, params, testSettings, ZERO_BYTES);
         console.log("Swap completed");
 
@@ -389,10 +397,10 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // ✅ UPDATED: Use new deposit function
         (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            250, 
+            key,
+            -120,
+            120,
+            250,
             250,
             true // JIT enabled
         );
@@ -474,10 +482,10 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // ✅ UPDATED: Use new deposit function (JIT enabled to create claim tokens)
         (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            depositAmount0, 
+            key,
+            -120,
+            120,
+            depositAmount0,
             depositAmount1,
             true // JIT enabled = claim tokens in hook
         );
@@ -515,14 +523,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
 
         // Deposit liquidity
-        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            500, 
-            500,
-            true
-        );
+        (uint256 tokenId, uint128 liquidity,,) = hook.depositLiquidityWithAmounts(key, -120, 120, 500, 500, true);
         vm.stopPrank();
 
         console.log("TokenId minted: %s, liquidity: %s", tokenId, liquidity);
@@ -554,10 +555,10 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         vm.startPrank(LP1);
         configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
         (uint256 passiveTokenId, uint128 passiveLiq,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            500, 
+            key,
+            -120,
+            120,
+            500,
             500,
             false // Passive
         );
@@ -568,10 +569,10 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         vm.startPrank(LP2);
         configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
         (uint256 activeTokenId, uint128 activeLiq,,) = hook.depositLiquidityWithAmounts(
-            key, 
-            -120, 
-            120, 
-            500, 
+            key,
+            -120,
+            120,
+            500,
             500,
             true // Active JIT
         );
@@ -584,9 +585,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Evaluate for JIT - only LP2 should be eligible
         (address[] memory eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, 2000);
-        
+
         console.log("Eligible LPs for JIT: %s", eligibleLPs.length);
-        
+
         // Only active JIT positions should be eligible
         bool lp1Found = false;
         bool lp2Found = false;

@@ -31,7 +31,7 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 contract ZKJITLiquidityHook is BaseHook {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
-    using CurrencyLibrary for Currency;
+    // using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
 
     // ============ Module Contracts ============
@@ -89,6 +89,12 @@ contract ZKJITLiquidityHook is BaseHook {
         bool isJITEnabled;
     }
 
+    struct SwapCallbackData {
+        PoolKey poolKey;
+        SwapParams params;
+        address sender;
+    }
+
     // ============ Constructor ============
 
     constructor(
@@ -118,7 +124,7 @@ contract ZKJITLiquidityHook is BaseHook {
         return Hooks.Permissions({
             beforeInitialize: true,
             afterInitialize: false,
-            beforeAddLiquidity: true,
+            beforeAddLiquidity: false,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
@@ -136,15 +142,6 @@ contract ZKJITLiquidityHook is BaseHook {
     function _beforeInitialize(address, PoolKey calldata key, uint160) internal pure override returns (bytes4) {
         if (!key.fee.isDynamicFee()) revert MustUseDynamicFee();
         return this.beforeInitialize.selector;
-    }
-
-    function _beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        internal
-        pure
-        override
-        returns (bytes4)
-    {
-        revert AddLiquidityThroughHook();
     }
 
     // ============ Liquidity Deposit Functions ============
@@ -195,7 +192,7 @@ contract ZKJITLiquidityHook is BaseHook {
     }
 
     /**
-     * @notice Deposit liquidity with specified liquidity amount
+     * @notice Deposit liquidity with specified liquidity amount (TO BE MADE REDUNDANT FOR NOW)
      * @param key Pool key
      * @param tickLower Lower tick of position
      * @param tickUpper Upper tick of position
@@ -260,7 +257,32 @@ contract ZKJITLiquidityHook is BaseHook {
 
             currentSwapId = swapId;
 
-            jitCoordinator.executeMultiLPJIT(swapId);
+            // Get execution parameters from coordinator
+            (int24 tickLower, int24 tickUpper, uint128 totalLiquidity,,) = jitCoordinator.getJITExecutionParams(swapId);
+
+            // Execute liquidity addition HERE where we have claim tokens
+            ModifyLiquidityParams memory modParams = ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: int256(uint256(totalLiquidity)),
+                salt: bytes32(swapId)
+            });
+
+            (BalanceDelta delta,) = poolManager.modifyLiquidity(key, modParams, "");
+
+            // Settle the debts by burning our claim tokens
+            // When adding liquidity, we OWE tokens to the pool (negative amounts = debts)
+            if (delta.amount0() < 0) {
+                // We owe token0 to the pool, burn our claims to settle
+                key.currency0.settle(poolManager, address(this), uint256(uint128(-delta.amount0())), true);
+            }
+            if (delta.amount1() < 0) {
+                // We owe token1 to the pool, burn our claims to settle
+                key.currency1.settle(poolManager, address(this), uint256(uint128(-delta.amount1())), true);
+            }
+
+            // Record execution in coordinator
+            jitCoordinator.recordJITExecution(swapId, tickLower, tickUpper, totalLiquidity);
         }
 
         // Get dynamic fee
@@ -360,6 +382,32 @@ contract ZKJITLiquidityHook is BaseHook {
         returns (bytes4, int128)
     {
         if (currentSwapId > 0) {
+            // Get position details for removal
+            (bool isActive, int24 tickLower, int24 tickUpper, uint128 totalLiquidity) =
+                jitCoordinator.getJITPositionForRemoval(currentSwapId);
+
+            if (isActive && totalLiquidity > 0) {
+                // Remove the JIT liquidity
+                ModifyLiquidityParams memory removeParams = ModifyLiquidityParams({
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    liquidityDelta: -int256(uint256(totalLiquidity)),
+                    salt: bytes32(currentSwapId)
+                });
+
+                (BalanceDelta removeDelta,) = poolManager.modifyLiquidity(key, removeParams, "");
+
+                // When removing liquidity, we RECEIVE tokens from the pool (positive amounts = credits)
+                // We take these credits as claim tokens
+                if (removeDelta.amount0() > 0) {
+                    key.currency0.take(poolManager, address(this), uint256(int256(removeDelta.amount0())), true);
+                }
+                if (removeDelta.amount1() > 0) {
+                    key.currency1.take(poolManager, address(this), uint256(int256(removeDelta.amount1())), true);
+                }
+            }
+
+            // Process fee distribution
             jitCoordinator.removeJITLiquidity(key, currentSwapId, delta, currentAppliedFee);
 
             (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(currentSwapId);
@@ -447,5 +495,21 @@ contract ZKJITLiquidityHook is BaseHook {
         returns (uint256 amount0, uint256 amount1)
     {
         return positionManager.calculateAmountsForLiquidity(key, tickLower, tickUpper, liquidity);
+    }
+
+    function _handleSwap(PoolKey calldata key, SwapParams calldata params) external {
+        BalanceDelta delta = poolManager.swap(key, params, "");
+
+        if (params.zeroForOne) {
+            if (delta.amount0() > 0) {
+                IERC20(Currency.unwrap(key.currency0)).transfer(address(poolManager), uint256(int256(delta.amount0())));
+                // settle with poolManager
+                key.currency0.settle(poolManager, address(this), uint256(int256(delta.amount0())), false);
+            }
+
+            if (delta.amount1() < 0) {
+                key.currency1.take(poolManager, msg.sender, uint256(int256(-delta.amount1())), true);
+            }
+        }
     }
 }

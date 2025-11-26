@@ -154,6 +154,7 @@ contract LPPositionManager is ERC1155 {
 
     /**
      * @notice Remove liquidity by burning ERC1155 LP token
+     * @param liquidityDelta Amount of liquidity to remove
      */
     function removeLiquidity(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta, address withdrawer)
         external
@@ -459,6 +460,9 @@ contract LPPositionManager is ERC1155 {
         return totalLiquidity;
     }
 
+    /**
+     * @notice Get total deposited token amounts for an LP
+     */
     function getTotalDeposited(PoolId poolId, address lp) external view returns (uint128 total0, uint128 total1) {
         LPPosition[] memory positions = lpPositions[poolId][lp];
 
@@ -472,6 +476,9 @@ contract LPPositionManager is ERC1155 {
         return (total0, total1);
     }
 
+    /**
+     * @notice Get specific LP position by tokenId
+     */
     function getPosition(PoolKey calldata poolKey, address lp, uint256 tokenId)
         external
         view

@@ -6,7 +6,7 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {SwapParams, ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 
 import {ILPPositionManager} from "./interfaces/ILPPositionManager.sol";
@@ -18,6 +18,7 @@ import {IFeeCalculator} from "./interfaces/IFeeCalculator.sol";
  * @title JITCoordinator
  * @notice Coordinates multi-LP Just-In-Time liquidity operations
  * @dev Targets proportional LP contributions for swap coverage
+ * @dev UPDATED: Liquidity execution moved to hook (which has claim tokens)
  */
 contract JITCoordinator {
     using PoolIdLibrary for PoolKey;
@@ -80,7 +81,7 @@ contract JITCoordinator {
     // ============ Events ============
 
     event JITRequested(uint256 indexed swapId, PoolId indexed poolId, address indexed swapper, uint128 swapAmount);
-    event JITExecuted(uint256 indexed swapId, PoolId indexed poolId, uint128 liquidityProvided);
+    event JITRecorded(uint256 indexed swapId, PoolId indexed poolId, uint128 liquidityProvided);
     event JITMultiLPExecution(uint256 indexed swapId, address[] lps, uint128[] contributions);
     event JITRemoved(uint256 indexed swapId, PoolId indexed poolId, uint256 totalFees0, uint256 totalFees1);
     event JITFeesDistributed(uint256 indexed swapId, address indexed lp, uint256 fees0, uint256 fees1);
@@ -208,18 +209,75 @@ contract JITCoordinator {
     }
 
     /**
-     * @notice Execute multi-LP JIT operation
+     * @notice Get JIT execution parameters (called by hook before execution)
+     * @dev Hook will use these to execute the actual modifyLiquidity
      */
-    function executeMultiLPJIT(uint256 swapId) external {
+    function getJITExecutionParams(uint256 swapId)
+        external
+        view
+        returns (
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 totalLiquidity,
+            address[] memory lps,
+            uint128[] memory contributions
+        )
+    {
         PendingJIT storage jit = pendingJITs[swapId];
 
-        if (jit.executed) revert AlreadyExecuted();
+        PoolId poolId = jit.poolKey.toId();
+        (, int24 currentTick,,) = poolManager.getSlot0(poolId);
 
-        _recordMultiLPJITPosition(jit.poolKey, swapId, jit.eligibleLPs, jit.liquidityContributions);
+        int24 tickSpacing = jit.poolKey.tickSpacing;
+        tickLower = ((currentTick - TICK_RANGE) / tickSpacing) * tickSpacing;
+        tickUpper = ((currentTick + TICK_RANGE) / tickSpacing) * tickSpacing;
+
+        totalLiquidity = 0;
+        for (uint256 i = 0; i < jit.liquidityContributions.length; i++) {
+            totalLiquidity += jit.liquidityContributions[i];
+        }
+
+        return (tickLower, tickUpper, totalLiquidity, jit.eligibleLPs, jit.liquidityContributions);
+    }
+
+    /**
+     * @notice Record JIT execution (called by hook after modifyLiquidity)
+     */
+    function recordJITExecution(uint256 swapId, int24 tickLower, int24 tickUpper, uint128 totalLiquidity) external {
+        require(msg.sender == hook, "Only hook");
+
+        PendingJIT storage jit = pendingJITs[swapId];
+        require(!jit.executed, "Already executed");
+
+        jitPositions[swapId] = JITLiquidityPosition({
+            swapId: swapId,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            totalLiquidity: totalLiquidity,
+            participatingLPs: jit.eligibleLPs,
+            lpContributions: jit.liquidityContributions,
+            isActive: true,
+            timestamp: block.timestamp,
+            totalFees0: 0,
+            totalFees1: 0
+        });
 
         jit.executed = true;
 
+        emit JITRecorded(swapId, jit.poolKey.toId(), totalLiquidity);
         emit JITMultiLPExecution(swapId, jit.eligibleLPs, jit.liquidityContributions);
+    }
+
+    /**
+     * @notice Get JIT position for removal (called by hook in afterSwap)
+     */
+    function getJITPositionForRemoval(uint256 swapId)
+        external
+        view
+        returns (bool isActive, int24 tickLower, int24 tickUpper, uint128 totalLiquidity)
+    {
+        JITLiquidityPosition storage position = jitPositions[swapId];
+        return (position.isActive, position.tickLower, position.tickUpper, position.totalLiquidity);
     }
 
     /**
@@ -265,44 +323,6 @@ contract JITCoordinator {
         }
 
         return IFHEConfigManager(configManager).meetsThreshold(key, lp, swapAmount);
-    }
-
-    /**
-     * @notice Record JIT liquidity position for multiple LPs
-     */
-    function _recordMultiLPJITPosition(
-        PoolKey memory key,
-        uint256 swapId,
-        address[] memory lps,
-        uint128[] memory contributions
-    ) private {
-        PoolId poolId = key.toId();
-        (, int24 currentTick,,) = poolManager.getSlot0(poolId);
-
-        int24 tickLower = ((currentTick - TICK_RANGE) / key.tickSpacing) * key.tickSpacing;
-        int24 tickUpper = ((currentTick + TICK_RANGE) / key.tickSpacing) * key.tickSpacing;
-
-        uint128 totalLiquidity = 0;
-        for (uint256 i = 0; i < contributions.length; i++) {
-            totalLiquidity += contributions[i];
-        }
-
-        if (totalLiquidity > 0) {
-            jitPositions[swapId] = JITLiquidityPosition({
-                swapId: swapId,
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                totalLiquidity: totalLiquidity,
-                participatingLPs: lps,
-                lpContributions: contributions,
-                isActive: true,
-                timestamp: block.timestamp,
-                totalFees0: 0,
-                totalFees1: 0
-            });
-
-            emit JITExecuted(swapId, poolId, totalLiquidity);
-        }
     }
 
     /**
