@@ -35,6 +35,7 @@ contract ProfitManager {
         bool token0Triggered,
         bool token1Triggered
     );
+    event AutoHedgeReady(address indexed lp, PoolId indexed poolId, uint256 amount0, uint256 amount1);
 
     // ============ Errors ============
 
@@ -64,34 +65,36 @@ contract ProfitManager {
     /**
      * @notice Withdraw all accumulated profits
      */
-    function withdrawProfits(PoolKey calldata poolKey) external {
+    function withdrawProfits(PoolKey calldata poolKey, address lp)
+        external
+        returns (uint256 amount0, uint256 amount1)
+    {
         PoolId poolId = poolKey.toId();
 
-        uint256 profit0 = lpProfits0[poolId][msg.sender];
-        uint256 profit1 = lpProfits1[poolId][msg.sender];
+        amount0 = lpProfits0[poolId][lp];
+        amount1 = lpProfits1[poolId][lp];
 
-        if (profit0 == 0 && profit1 == 0) revert InsufficientProfit();
+        if (amount0 == 0 && amount1 == 0) revert InsufficientProfit();
 
-        if (profit0 > 0) {
-            lpProfits0[poolId][msg.sender] = 0;
-            IERC20(Currency.unwrap(poolKey.currency0)).transfer(msg.sender, profit0);
-        }
-        if (profit1 > 0) {
-            lpProfits1[poolId][msg.sender] = 0;
-            IERC20(Currency.unwrap(poolKey.currency1)).transfer(msg.sender, profit1);
-        }
+        if (amount0 > 0) lpProfits0[poolId][lp] = 0;
+        if (amount1 > 0) lpProfits1[poolId][lp] = 0;
 
-        emit ProfitWithdrawn(msg.sender, poolId, profit0, profit1);
+        emit ProfitWithdrawn(lp, poolId, amount0, amount1);
+
+        return (amount0, amount1);
     }
 
     /**
      * @notice Withdraw partial profits
      */
-    function withdrawPartialProfits(PoolKey calldata poolKey, uint256 amount0, uint256 amount1) external {
+    function withdrawPartialProfits(PoolKey calldata poolKey, address lp, uint256 amount0, uint256 amount1)
+        external
+        returns (uint256 withdrawn0, uint256 withdrawn1)
+    {
         PoolId poolId = poolKey.toId();
 
-        uint256 availableProfit0 = lpProfits0[poolId][msg.sender];
-        uint256 availableProfit1 = lpProfits1[poolId][msg.sender];
+        uint256 availableProfit0 = lpProfits0[poolId][lp];
+        uint256 availableProfit1 = lpProfits1[poolId][lp];
 
         if (amount0 > availableProfit0 || amount1 > availableProfit1) {
             revert InsufficientProfit();
@@ -99,56 +102,72 @@ contract ProfitManager {
 
         if (availableProfit0 == 0 && availableProfit1 == 0) revert InsufficientProfit();
 
-        if (amount0 > 0) {
-            lpProfits0[poolId][msg.sender] -= amount0;
-            IERC20(Currency.unwrap(poolKey.currency0)).transfer(msg.sender, amount0);
-        }
-        if (amount1 > 0) {
-            lpProfits1[poolId][msg.sender] -= amount1;
-            IERC20(Currency.unwrap(poolKey.currency1)).transfer(msg.sender, amount1);
-        }
+        withdrawn0 = amount0;
+        withdrawn1 = amount1;
 
-        emit ProfitWithdrawn(msg.sender, poolId, amount0, amount1);
+        if (amount0 > 0) lpProfits0[poolId][lp] -= amount0;
+        if (amount1 > 0) lpProfits1[poolId][lp] -= amount1;
+
+        emit ProfitWithdrawn(lp, poolId, amount0, amount1);
+
+        return (withdrawn0, withdrawn1);
     }
 
     /**
      * @notice Check and execute auto-hedge if threshold is met for either token
      * @dev Called by JITCoordinator after fee distribution
      */
-    function checkAndExecuteAutoHedge(PoolKey calldata poolKey, address lp) external {
+    function checkAndExecuteAutoHedge(PoolKey calldata poolKey, address lp)
+        external
+        returns (bool shouldHedge, uint256 amount0, uint256 amount1, bool token0Triggered, bool token1Triggered)
+    {
         PoolId poolId = poolKey.toId();
 
         uint256 profit0 = lpProfits0[poolId][lp];
         uint256 profit1 = lpProfits1[poolId][lp];
 
         // Check if auto-hedge should trigger (either token)
-        bool shouldHedge = IFHEConfigManager(configManager).shouldAutoHedge(poolKey, lp, profit0, profit1);
+        shouldHedge = IFHEConfigManager(configManager).shouldAutoHedge(poolKey, lp, profit0, profit1);
 
         if (shouldHedge) {
             // Get which tokens triggered
-            (bool token0Triggered, bool token1Triggered) =
+            (token0Triggered, token1Triggered) =
                 IFHEConfigManager(configManager).getHedgeTriggers(poolKey, lp, profit0, profit1);
 
-            // Transfer accumulated profits
+            // ✅ Reset accounting only (no transfer here)
+            amount0 = 0;
+            amount1 = 0;
+
             if (token0Triggered) {
+                amount0 = profit0;
                 lpProfits0[poolId][lp] = 0;
-                IERC20(Currency.unwrap(poolKey.currency0)).transfer(lp, profit0);
             }
             if (token1Triggered) {
+                amount1 = profit1;
                 lpProfits1[poolId][lp] = 0;
-                IERC20(Currency.unwrap(poolKey.currency1)).transfer(lp, profit1);
             }
 
-            emit AutoHedgeExecuted(lp, poolId, profit0, profit1, token0Triggered, token1Triggered);
-            emit ProfitWithdrawn(lp, poolId, profit0, profit1);
+            emit AutoHedgeExecuted(lp, poolId, amount0, amount1, token0Triggered, token1Triggered);
+            emit AutoHedgeReady(lp, poolId, amount0, amount1); // ✅ Signal hook to transfer
+            emit ProfitWithdrawn(lp, poolId, amount0, amount1);
         }
+
+        return (shouldHedge, amount0, amount1, token0Triggered, token1Triggered);
     }
 
     /**
      * @notice Manually trigger hedge (withdraw all profits)
      */
     function manualHedge(PoolKey calldata poolKey) external {
-        this.withdrawProfits(poolKey);
+        PoolId poolId = poolKey.toId();
+
+        uint256 profit0 = lpProfits0[poolId][msg.sender];
+        uint256 profit1 = lpProfits1[poolId][msg.sender];
+
+        if (profit0 == 0 && profit1 == 0) revert InsufficientProfit();
+
+        // Emit event that hook can listen to
+        emit AutoHedgeReady(msg.sender, poolId, profit0, profit1);
     }
 
     // ============ View Functions ============

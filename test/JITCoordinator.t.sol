@@ -91,9 +91,6 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 
         _setupTestAccounts();
-
-        MockERC20(Currency.unwrap(currency0)).mint(address(profitManager), 1000000 ether);
-        MockERC20(Currency.unwrap(currency1)).mint(address(profitManager), 1000000 ether);
     }
 
     function _setupTestAccounts() private {
@@ -132,12 +129,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         // Add additional base liquidity from minimum tick to maximum tick
         hook.depositLiquidityWithAmounts(
-            key,
-            TickMath.minUsableTick(60),
-            TickMath.maxUsableTick(60),
-            50000,
-            50000,
-            false
+            key, TickMath.minUsableTick(60), TickMath.maxUsableTick(60), 50000, 50000, false
         );
         vm.stopPrank();
     }

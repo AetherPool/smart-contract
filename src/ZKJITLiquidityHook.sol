@@ -317,12 +317,37 @@ contract ZKJITLiquidityHook is BaseHook {
         // Take credits as claim tokens
         _takeJITCredits(key, removeDelta);
 
-        // Process fees
-        jitCoordinator.removeJITLiquidity(key, currentSwapId, swapDelta, currentAppliedFee);
+        // Process fees and get any auto-hedge transfers needed
+        (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1) =
+            jitCoordinator.removeJITLiquidityWithAutoHedge(key, currentSwapId, swapDelta, currentAppliedFee);
+
+        // ✅ Transfer auto-hedge profits using claim tokens
+        for (uint256 i = 0; i < autoHedgeLPs.length; i++) {
+            if (amounts0[i] > 0 || amounts1[i] > 0) {
+                _transferAutoHedgeProfits(key, autoHedgeLPs[i], amounts0[i], amounts1[i]);
+            }
+        }
 
         // Emit fees collected
         (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(currentSwapId);
         emit ActualFeesCollected(key.toId(), currentSwapId, fees0, fees1);
+    }
+
+    /**
+     * @notice Transfer auto-hedge profits using claim tokens
+     * ✅ NEW: This is called by hook which has unlock context
+     */
+    function _transferAutoHedgeProfits(PoolKey calldata key, address lp, uint256 amount0, uint256 amount1) private {
+        if (amount0 > 0) {
+            // Burn hook's claim tokens to cover the debt
+            key.currency0.settle(poolManager, address(this), amount0, true);
+            // Transfer actual tokens to LP
+            key.currency0.take(poolManager, lp, amount0, false);
+        }
+        if (amount1 > 0) {
+            key.currency1.settle(poolManager, address(this), amount1, true);
+            key.currency1.take(poolManager, lp, amount1, false);
+        }
     }
 
     /**

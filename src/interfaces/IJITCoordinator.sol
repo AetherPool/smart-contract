@@ -36,6 +36,13 @@ interface IJITCoordinator {
         view
         returns (bool isActive, int24 tickLower, int24 tickUpper, uint128 totalLiquidity);
 
+    function removeJITLiquidityWithAutoHedge(
+        PoolKey calldata key,
+        uint256 swapId,
+        BalanceDelta delta,
+        uint24 appliedFee
+    ) external returns (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1);
+
     function executeMultiLPJIT(uint256 swapId) external;
     function removeJITLiquidity(PoolKey calldata key, uint256 swapId, BalanceDelta delta, uint24 appliedFee) external;
     function isJITActive(uint256 swapId) external view returns (bool);
