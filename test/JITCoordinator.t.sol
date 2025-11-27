@@ -193,13 +193,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         (address[] memory eligibleLPs1,) = jitCoordinator.evaluateMultiLPJIT(key, 1000);
-        assertGt(eligibleLPs1.length, 0);
+        assertEq(eligibleLPs1.length, 1);
 
         (address[] memory eligibleLPs2,) = jitCoordinator.evaluateMultiLPJIT(key, 1500);
-        assertGt(eligibleLPs2.length, 0);
+        assertGt(eligibleLPs2.length, 2);
 
         (address[] memory eligibleLPs3,) = jitCoordinator.evaluateMultiLPJIT(key, 5000);
-        assertGt(eligibleLPs3.length, 0);
+        assertEq(eligibleLPs3.length, 3);
     }
 
     function testJITLifecycleViaSwap() public {
