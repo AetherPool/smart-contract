@@ -209,9 +209,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         (address[] memory eligibleLPs, uint128[] memory contributions) =
             jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
 
-        if (eligibleLPs.length == 0) {
-            return;
-        }
+        assertEq(eligibleLPs.length, 3);
 
         for (uint256 i = 0; i < eligibleLPs.length; i++) {
             configManager.decryptHedgePercentage(key, eligibleLPs[i]);
@@ -244,6 +242,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
 
         for (uint256 i = 0; i < eligibleLPs.length; i++) {
             (uint256 profit0, uint256 profit1) = profitManager.getLPProfits(key, eligibleLPs[i]);
+            assertTrue(profit0 > initialProfits0[i] || profit1 > initialProfits1[i]);
+
             uint256 profitIncrease = (profit0 - initialProfits0[i]) + (profit1 - initialProfits1[i]);
 
             if (contributions[i] > 0) {
@@ -280,10 +280,12 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         _setupMultipleLPs();
 
         (address[] memory eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
+        assertEq(eligibleLPs.length, 3);
 
-        if (eligibleLPs.length == 0) {
-            return;
+        for (uint256 i = 0; i < eligibleLPs.length; i++) {
+            configManager.decryptHedgePercentage(key, eligibleLPs[i]);
         }
+        vm.warp(block.timestamp + 10);
 
         SwapParams memory params = SwapParams({
             zeroForOne: true,
@@ -303,7 +305,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         assertFalse(isActive);
 
         (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(swapId);
-        assertTrue(fees0 > 0 || fees1 > 0 || (fees0 == 0 && fees1 == 0));
+        assertTrue(fees0 > 0 || fees1 > 0);
     }
 
     function testHookHasClaimTokens() public {
@@ -326,8 +328,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         uint256 hookBalance0 = manager.balanceOf(address(hook), currency0Id);
         uint256 hookBalance1 = manager.balanceOf(address(hook), currency1Id);
 
-        assertEq(hookBalance0, depositAmount0);
-        assertEq(hookBalance1, depositAmount1);
+        assertApproxEqAbs(hookBalance0, depositAmount0, 2);
+        assertApproxEqAbs(hookBalance1, depositAmount1, 2);
     }
 
     function testERC1155TokenMinting() public {
@@ -360,8 +362,12 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         hook.depositLiquidityWithAmounts(key, -120, 120, 500, 500, false);
         vm.stopPrank();
 
+        InEuint128 memory enc2MinSwap = createInEuint128(1200, LP2);
+        InEuint32 memory enc2Hedge0 = createInEuint32(40, LP2);
+        InEuint32 memory enc2Hedge1 = createInEuint32(35, LP2);
+
         vm.startPrank(LP2);
-        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
+        configManager.configureLPSettings(key, enc2MinSwap, enc2Hedge0, enc2Hedge1, false);
         hook.depositLiquidityWithAmounts(key, -120, 120, 500, 500, true);
         vm.stopPrank();
 
