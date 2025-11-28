@@ -69,7 +69,7 @@ contract DynamicFeeManagerTest is Test {
     }
 
     function testMovingAverageUpdates() public {
-        ( , uint104 initialCount) = feeManager.getMovingAverageData();
+        (, uint104 initialCount) = feeManager.getMovingAverageData();
 
         uint256[] memory gasPrices = new uint256[](5);
         gasPrices[0] = 8 gwei;
