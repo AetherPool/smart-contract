@@ -15,7 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @notice User-friendly swap router for JIT liquidity pools
  * @dev Wraps Uniswap V4 swap functionality with simple interface
  */
-contract JITSwapRouter {
+contract HookSwapRouter {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
 
@@ -44,7 +44,7 @@ contract JITSwapRouter {
      * @param deadline Transaction deadline
      * @return amountOut Amount of output tokens received
      */
-    function swapExactTokensForTokens(
+    function swapExactInputForOutput(
         PoolKey calldata key,
         address tokenIn,
         address tokenOut,
@@ -90,7 +90,7 @@ contract JITSwapRouter {
      * @param deadline Transaction deadline
      * @return amountIn Amount of input tokens used
      */
-    function swapTokensForExactTokens(
+    function swapInputForExactOutput(
         PoolKey calldata key,
         address tokenIn,
         address tokenOut,
