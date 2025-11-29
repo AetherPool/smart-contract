@@ -91,7 +91,7 @@ contract HookSwapRouter {
      * @param deadline Transaction deadline
      * @return amountIn Amount of input tokens used
      */
-    function swapInputForExactOutput(
+    function swapExactOutputForInput(
         PoolKey calldata key,
         address tokenIn,
         address tokenOut,
