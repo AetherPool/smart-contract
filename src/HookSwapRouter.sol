@@ -11,7 +11,7 @@ import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
- * @title JITSwapRouter
+ * @title HookSwapRouter
  * @notice User-friendly swap router for JIT liquidity pools
  * @dev Wraps Uniswap V4 swap functionality with simple interface
  */
@@ -69,7 +69,8 @@ contract HookSwapRouter {
             sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
 
-        BalanceDelta delta = abi.decode(poolManager.unlock(abi.encode(key, params, msg.sender)), (BalanceDelta));
+        bytes memory result = poolManager.unlock(abi.encode(key, params, msg.sender));
+        BalanceDelta delta = abi.decode(result, (BalanceDelta));
 
         amountOut = zeroForOne ? uint256(uint128(delta.amount1())) : uint256(uint128(delta.amount0()));
 
@@ -106,25 +107,18 @@ contract HookSwapRouter {
             revert InvalidPath();
         }
 
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountInMaximum);
-        IERC20(tokenIn).approve(address(poolManager), amountInMaximum);
-
         SwapParams memory params = SwapParams({
             zeroForOne: zeroForOne,
             amountSpecified: int256(amountOut),
             sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
 
-        BalanceDelta delta = abi.decode(poolManager.unlock(abi.encode(key, params, msg.sender)), (BalanceDelta));
+        bytes memory result = poolManager.unlock(abi.encode(key, params, msg.sender, amountInMaximum, tokenIn));
+        (, uint256 actualAmountIn) = abi.decode(result, (BalanceDelta, uint256));
 
-        amountIn = zeroForOne ? uint256(uint128(-delta.amount0())) : uint256(uint128(-delta.amount1()));
+        amountIn = actualAmountIn;
 
         if (amountIn > amountInMaximum) revert ExcessiveInputAmount();
-
-        uint256 refund = amountInMaximum - amountIn;
-        if (refund > 0) {
-            IERC20(tokenIn).transfer(msg.sender, refund);
-        }
 
         emit Swap(msg.sender, tokenIn, tokenOut, amountIn, amountOut);
 
@@ -137,14 +131,39 @@ contract HookSwapRouter {
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         require(msg.sender == address(poolManager), "Only pool manager");
 
+        // Decode the first part to check swap type
         (PoolKey memory key, SwapParams memory params, address trader) =
             abi.decode(data, (PoolKey, SwapParams, address));
 
-        BalanceDelta delta = poolManager.swap(key, params, ZERO_BYTES);
+        // Check if this is exact output swap by checking amountSpecified sign
+        if (params.amountSpecified > 0) {
+            // Exact output swap - decode additional parameters
+            (,,, uint256 amountInMaximum, address tokenIn) =
+                abi.decode(data, (PoolKey, SwapParams, address, uint256, address));
 
-        _settleSwap(key, delta, params.zeroForOne, trader);
+            BalanceDelta delta = poolManager.swap(key, params, ZERO_BYTES);
 
-        return abi.encode(delta);
+            bool zeroForOne = tokenIn == Currency.unwrap(key.currency0);
+            uint256 amountIn = zeroForOne ? uint256(uint128(-delta.amount0())) : uint256(uint128(-delta.amount1()));
+
+            // Check before settling
+            if (amountIn > amountInMaximum) revert ExcessiveInputAmount();
+
+            // Transfer exact amount needed
+            IERC20(tokenIn).transferFrom(trader, address(this), amountIn);
+            IERC20(tokenIn).approve(address(poolManager), amountIn);
+
+            _settleSwap(key, delta, zeroForOne, trader);
+
+            return abi.encode(delta, amountIn);
+        } else {
+            // Exact input swap
+            BalanceDelta delta = poolManager.swap(key, params, ZERO_BYTES);
+
+            _settleSwap(key, delta, params.zeroForOne, trader);
+
+            return abi.encode(delta);
+        }
     }
 
     /**

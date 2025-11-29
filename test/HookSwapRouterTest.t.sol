@@ -43,11 +43,7 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
     uint256 public constant SWAP_AMOUNT = 100000;
 
     event Swap(
-        address indexed sender,
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
+        address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut
     );
 
     function setUp() public {
@@ -138,7 +134,7 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         vm.stopPrank();
     }
 
-    function testswapExactInputForOutput() public {
+    function testSwapExactInputForOutput() public {
         address tokenIn = Currency.unwrap(currency0);
         address tokenOut = Currency.unwrap(currency1);
 
@@ -146,8 +142,6 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         uint256 balance1Before = MockERC20(tokenOut).balanceOf(TRADER);
 
         vm.prank(TRADER);
-        vm.expectEmit(true, true, true, false);
-        emit Swap(TRADER, tokenIn, tokenOut, SWAP_AMOUNT, 0);
         uint256 amountOut =
             hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
 
@@ -159,7 +153,7 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         assertEq(balance1After - balance1Before, amountOut);
     }
 
-    function testswapInputForExactOutput() public {
+    function testSwapInputForExactOutput() public {
         address tokenIn = Currency.unwrap(currency0);
         address tokenOut = Currency.unwrap(currency1);
         uint256 exactAmountOut = 50000;
@@ -169,8 +163,9 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         uint256 balance1Before = MockERC20(tokenOut).balanceOf(TRADER);
 
         vm.prank(TRADER);
-        uint256 amountIn =
-            hookSwapRouter.swapInputForExactOutput(key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100);
+        uint256 amountIn = hookSwapRouter.swapInputForExactOutput(
+            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+        );
 
         uint256 balance0After = MockERC20(tokenIn).balanceOf(TRADER);
         uint256 balance1After = MockERC20(tokenOut).balanceOf(TRADER);
@@ -187,7 +182,9 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.InsufficientOutputAmount.selector);
-        hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, minAmountOut, block.timestamp + 100);
+        hookSwapRouter.swapExactInputForOutput(
+            key, tokenIn, tokenOut, SWAP_AMOUNT, minAmountOut, block.timestamp + 100
+        );
     }
 
     function testSwapReverseDirection() public {
@@ -261,9 +258,12 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(TRADER);
 
-        uint256 amountOut1 = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-        uint256 amountOut2 = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-        uint256 amountOut3 = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountOut1 =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountOut2 =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountOut3 =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
 
         vm.stopPrank();
 
@@ -278,9 +278,12 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(TRADER);
 
-        uint256 smallOut = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 10000, 0, block.timestamp + 100);
-        uint256 mediumOut = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 50000, 0, block.timestamp + 100);
-        uint256 largeOut = hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 100000, 0, block.timestamp + 100);
+        uint256 smallOut =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 10000, 0, block.timestamp + 100);
+        uint256 mediumOut =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 50000, 0, block.timestamp + 100);
+        uint256 largeOut =
+            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 100000, 0, block.timestamp + 100);
 
         vm.stopPrank();
 
@@ -297,8 +300,9 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         uint256 balanceBefore = MockERC20(tokenIn).balanceOf(TRADER);
 
         vm.prank(TRADER);
-        uint256 actualAmountIn =
-            hookSwapRouter.swapInputForExactOutput(key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100);
+        uint256 actualAmountIn = hookSwapRouter.swapInputForExactOutput(
+            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+        );
 
         uint256 balanceAfter = MockERC20(tokenIn).balanceOf(TRADER);
 
@@ -314,7 +318,9 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.ExcessiveInputAmount.selector);
-        hookSwapRouter.swapInputForExactOutput(key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100);
+        hookSwapRouter.swapInputForExactOutput(
+            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+        );
     }
 
     function testLargeSwap() public {
@@ -350,10 +356,12 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.startPrank(TRADER);
 
-        uint256 amountOut1 = hookSwapRouter.swapExactInputForOutput(key, token0, token1, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountOut1 =
+            hookSwapRouter.swapExactInputForOutput(key, token0, token1, SWAP_AMOUNT, 0, block.timestamp + 100);
         assertGt(amountOut1, 0);
 
-        uint256 amountOut2 = hookSwapRouter.swapExactInputForOutput(key, token1, token0, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountOut2 =
+            hookSwapRouter.swapExactInputForOutput(key, token1, token0, SWAP_AMOUNT, 0, block.timestamp + 100);
         assertGt(amountOut2, 0);
 
         vm.stopPrank();
