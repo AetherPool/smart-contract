@@ -3,8 +3,8 @@ pragma solidity ^0.8.26;
 
 /**
  * @title DynamicFeeManager
- * @notice Manages dynamic fee calculation based on gas price conditions
- * @dev Adjusts fees to incentivize trading during high gas and maximize LP returns during low gas
+ * @notice Adjusts swap fees based on gas price conditions to optimize LP returns
+ * @dev Uses moving average gas price to determine fee tiers
  */
 contract DynamicFeeManager {
     // ============ Storage ============
@@ -12,12 +12,12 @@ contract DynamicFeeManager {
     uint128 public movingAverageGasPrice;
     uint104 public movingAverageGasPriceCount;
 
-    uint24 public baseFee = 3000; // 0.3% base fee
-    uint24 public highGasFee = 1500; // 0.15% during high gas
-    uint24 public lowGasFee = 6000; // 0.6% during low gas
+    uint24 public baseFee = 3000;
+    uint24 public highGasFee = 1500;
+    uint24 public lowGasFee = 6000;
 
-    uint256 public highGasThreshold = 110; // 110% of moving average
-    uint256 public lowGasThreshold = 90; // 90% of moving average
+    uint256 public highGasThreshold = 110;
+    uint256 public lowGasThreshold = 90;
 
     address public hook;
     address public owner;
@@ -67,10 +67,11 @@ contract DynamicFeeManager {
 
     /**
      * @notice Calculate dynamic fee based on current gas conditions
+     * @return fee The calculated fee in basis points
+     * @return level The current fee level
      */
     function getFee() external returns (uint24 fee, FeeLevel level) {
         uint128 gasPrice = uint128(tx.gasprice);
-
         updateMovingAverage();
 
         if (gasPrice > (movingAverageGasPrice * highGasThreshold) / 100) {
@@ -85,12 +86,13 @@ contract DynamicFeeManager {
         }
 
         emit FeeCalculated(fee, gasPrice, movingAverageGasPrice, level);
-
         return (fee, level);
     }
 
     /**
      * @notice Get current fee without updating state
+     * @return fee The current fee in basis points
+     * @return level The current fee level
      */
     function getCurrentFee() external view returns (uint24 fee, FeeLevel level) {
         uint128 gasPrice = uint128(tx.gasprice);
@@ -126,6 +128,9 @@ contract DynamicFeeManager {
 
     /**
      * @notice Update fee parameters
+     * @param _baseFee New base fee in basis points
+     * @param _highGasFee New high gas fee in basis points
+     * @param _lowGasFee New low gas fee in basis points
      */
     function updateFeeParameters(uint24 _baseFee, uint24 _highGasFee, uint24 _lowGasFee) external onlyOwner {
         if (_baseFee == 0 || _highGasFee == 0 || _lowGasFee == 0) revert InvalidFee();
@@ -140,6 +145,8 @@ contract DynamicFeeManager {
 
     /**
      * @notice Update gas price thresholds
+     * @param _highGasThreshold Percentage above average for high gas (> 100)
+     * @param _lowGasThreshold Percentage below average for low gas (< 100)
      */
     function updateThresholds(uint256 _highGasThreshold, uint256 _lowGasThreshold) external onlyOwner {
         if (_highGasThreshold <= 100 || _lowGasThreshold >= 100) revert InvalidThreshold();
@@ -153,6 +160,7 @@ contract DynamicFeeManager {
 
     /**
      * @notice Transfer ownership
+     * @param newOwner Address of the new owner
      */
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert Unauthorized();
