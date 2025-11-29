@@ -13,15 +13,15 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 
 /**
  * @title LPPositionManager
- * @notice Manages LP positions with ERC1155 tokens, liquidity calculations and passive/active deposits
- * @dev Enhanced with proper token minting/burning and automatic liquidity calculations
+ * @notice Manages LP positions with ERC1155 tokens, supporting both passive liquidity and active JIT strategies
+ * @dev Automatically calculates liquidity from token amounts based on current pool price
  */
 contract LPPositionManager is ERC1155 {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
 
-    // ============ Data Structures ============
+    // ============ Structs ============
 
     struct LPPosition {
         uint256 tokenId;
@@ -31,7 +31,7 @@ contract LPPositionManager is ERC1155 {
         uint128 token0Amount;
         uint128 token1Amount;
         bool isActive;
-        bool isJITEnabled; // true = active JIT, false = passive liquidity
+        bool isJITEnabled;
         uint256 depositTimestamp;
     }
 
@@ -94,14 +94,13 @@ contract LPPositionManager is ERC1155 {
 
     /**
      * @notice Deposit liquidity and receive ERC1155 LP token
-     * @dev Calculates liquidity automatically from amounts
      * @param poolKey The pool to add liquidity to
      * @param tickLower Lower tick of position
      * @param tickUpper Upper tick of position
      * @param amount0 Token0 deposited
      * @param amount1 Token1 deposited
      * @param depositor Address depositing liquidity
-     * @param isJITEnabled True for active JIT, false for passive liquidity
+     * @param isJITEnabled True for active JIT participation, false for passive liquidity
      * @return tokenId Unique identifier for the LP position
      * @return liquidity Calculated liquidity amount
      */
@@ -116,14 +115,10 @@ contract LPPositionManager is ERC1155 {
     ) external onlyHook returns (uint256 tokenId, uint128 liquidity) {
         PoolId poolId = poolKey.toId();
 
-        // Calculate liquidity from the provided amounts
         (liquidity,,) = calculateLiquidityForAmounts(poolKey, tickLower, tickUpper, amount0, amount1);
-
         if (liquidity == 0) revert InvalidLiquidity();
 
         tokenId = nextTokenId++;
-
-        // Mint ERC1155 token to depositor
         _mint(depositor, tokenId, 1, "");
 
         LPPosition memory newPosition = LPPosition({
@@ -154,7 +149,12 @@ contract LPPositionManager is ERC1155 {
 
     /**
      * @notice Remove liquidity by burning ERC1155 LP token
+     * @param poolKey The pool
+     * @param tokenId Position token ID
      * @param liquidityDelta Amount of liquidity to remove
+     * @param withdrawer Address withdrawing liquidity
+     * @return amount0 Amount of token0 withdrawn
+     * @return amount1 Amount of token1 withdrawn
      */
     function removeLiquidity(PoolKey calldata poolKey, uint256 tokenId, uint128 liquidityDelta, address withdrawer)
         external
@@ -164,8 +164,6 @@ contract LPPositionManager is ERC1155 {
         PoolId poolId = poolKey.toId();
 
         if (tokenIdToLP[poolId][tokenId] != withdrawer) revert NotTokenOwner();
-
-        // Check token ownership
         if (balanceOf(withdrawer, tokenId) == 0) revert NotTokenOwner();
 
         LPPosition[] storage positions = lpPositions[poolId][withdrawer];
@@ -184,7 +182,6 @@ contract LPPositionManager is ERC1155 {
 
                 if (positions[i].liquidity == 0) {
                     positions[i].isActive = false;
-                    // Burn the ERC1155 token
                     _burn(withdrawer, tokenId, 1);
                 }
 
@@ -197,26 +194,11 @@ contract LPPositionManager is ERC1155 {
         }
 
         if (!found) revert PositionNotFound();
-
         return (amount0, amount1);
     }
 
-    // ============ Liquidity Calculation Functions ============
-
     /**
-     * @notice Get current pool price (sqrtPriceX96)
-     * @param poolKey Pool to query
-     * @return sqrtPriceX96 Current sqrt price
-     * @return tick Current tick
-     */
-    function getCurrentPrice(PoolKey calldata poolKey) public view returns (uint160 sqrtPriceX96, int24 tick) {
-        PoolId poolId = poolKey.toId();
-        (sqrtPriceX96, tick,,) = poolManager.getSlot0(poolId);
-        return (sqrtPriceX96, tick);
-    }
-
-    /**
-     * @notice Calculate liquidity for given token amounts
+     * @notice Calculate liquidity for given token amounts based on current pool price
      * @param poolKey Pool to calculate for
      * @param tickLower Lower tick
      * @param tickUpper Upper tick
@@ -241,23 +223,18 @@ contract LPPositionManager is ERC1155 {
         uint160 sqrtRatioBX96 = TickMath.getSqrtPriceAtTick(tickUpper);
 
         if (currentTick < tickLower) {
-            // Price below range, only token0 needed
             liquidity = getLiquidityForAmount0(sqrtRatioAX96, sqrtRatioBX96, amount0Desired);
             amount0 = amount0Desired;
             amount1 = 0;
         } else if (currentTick >= tickUpper) {
-            // Price above range, only token1 needed
             liquidity = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, amount1Desired);
             amount0 = 0;
             amount1 = amount1Desired;
         } else {
-            // Price in range, both tokens needed
             uint128 liquidity0 = getLiquidityForAmount0(sqrtPriceX96, sqrtRatioBX96, amount0Desired);
             uint128 liquidity1 = getLiquidityForAmount1(sqrtRatioAX96, sqrtPriceX96, amount1Desired);
 
             liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
-
-            // Calculate actual amounts needed for this liquidity
             (amount0, amount1) = getAmountsForLiquidity(sqrtPriceX96, sqrtRatioAX96, sqrtRatioBX96, liquidity);
         }
 
@@ -288,23 +265,20 @@ contract LPPositionManager is ERC1155 {
         return getAmountsForLiquidity(sqrtPriceX96, sqrtRatioAX96, sqrtRatioBX96, liquidity);
     }
 
-    /**
-     * @notice Get price ratio (token1/token0)
-     * @param poolKey Pool to query
-     * @return ratio Price ratio scaled by 1e18
-     */
-    function getPriceRatio(PoolKey calldata poolKey) external view returns (uint256 ratio) {
-        (uint160 sqrtPriceX96,) = getCurrentPrice(poolKey);
+    // ============ Internal Functions ============
 
-        // Price = (sqrtPriceX96 / 2^96)^2
-        // Scaled to 1e18 for precision
-        uint256 price = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), FixedPoint96.Q96);
-        ratio = FullMath.mulDiv(price, 1e18, FixedPoint96.Q96);
-
-        return ratio;
+    function getCurrentPrice(PoolKey calldata poolKey) public view returns (uint160 sqrtPriceX96, int24 tick) {
+        PoolId poolId = poolKey.toId();
+        (sqrtPriceX96, tick,,) = poolManager.getSlot0(poolId);
+        return (sqrtPriceX96, tick);
     }
 
-    // ============ Internal Helper Functions ============
+    function getPriceRatio(PoolKey calldata poolKey) external view returns (uint256 ratio) {
+        (uint160 sqrtPriceX96,) = getCurrentPrice(poolKey);
+        uint256 price = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), FixedPoint96.Q96);
+        ratio = FullMath.mulDiv(price, 1e18, FixedPoint96.Q96);
+        return ratio;
+    }
 
     function getLiquidityForAmount0(uint160 sqrtRatioAX96, uint160 sqrtRatioBX96, uint256 amount0)
         internal
@@ -384,9 +358,6 @@ contract LPPositionManager is ERC1155 {
         return poolLPs[poolKey.toId()];
     }
 
-    /**
-     * @notice Get only JIT-enabled LPs
-     */
     function getJITEnabledLPs(PoolKey calldata poolKey) external view returns (address[] memory) {
         PoolId poolId = poolKey.toId();
         address[] memory allLPs = poolLPs[poolId];
@@ -444,9 +415,6 @@ contract LPPositionManager is ERC1155 {
         return false;
     }
 
-    /**
-     * @notice Get total JIT-enabled liquidity for an LP
-     */
     function getTotalLiquidity(PoolId poolId, address lp) external view returns (uint128) {
         LPPosition[] memory positions = lpPositions[poolId][lp];
         uint128 totalLiquidity = 0;
@@ -460,9 +428,6 @@ contract LPPositionManager is ERC1155 {
         return totalLiquidity;
     }
 
-    /**
-     * @notice Get total deposited token amounts for an LP
-     */
     function getTotalDeposited(PoolId poolId, address lp) external view returns (uint128 total0, uint128 total1) {
         LPPosition[] memory positions = lpPositions[poolId][lp];
 
@@ -476,9 +441,6 @@ contract LPPositionManager is ERC1155 {
         return (total0, total1);
     }
 
-    /**
-     * @notice Get specific LP position by tokenId
-     */
     function getPosition(PoolKey calldata poolKey, address lp, uint256 tokenId)
         external
         view
