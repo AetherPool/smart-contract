@@ -7,13 +7,13 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 /**
  * @title FHEConfigManager
- * @notice Manages encrypted LP strategy parameters using Fhenix FHE
- * @dev Provides privacy-preserving configuration storage and threshold evaluation
+ * @notice Manages encrypted LP strategy parameters using Fhenix FHE for privacy-preserving configurations
+ * @dev All sensitive parameters (min swap size, hedge percentages) are stored encrypted
  */
 contract FHEConfigManager {
     using PoolIdLibrary for PoolKey;
 
-    // ============ Data Structures ============
+    // ============ Structs ============
 
     struct LPConfig {
         euint128 minSwapSize;
@@ -29,7 +29,6 @@ contract FHEConfigManager {
 
     mapping(PoolId => mapping(address => LPConfig)) public lpConfigs;
 
-    // FHE Constants
     euint128 private ENCRYPTED_ZERO;
     euint32 private ENCRYPTED_ZERO_32;
 
@@ -59,17 +58,18 @@ contract FHEConfigManager {
     constructor() {
         ENCRYPTED_ZERO = FHE.asEuint128(0);
         ENCRYPTED_ZERO_32 = FHE.asEuint32(0);
-
         FHE.allowThis(ENCRYPTED_ZERO);
         FHE.allowThis(ENCRYPTED_ZERO_32);
     }
+
+    // ============ External Functions ============
 
     /**
      * @notice Configure LP's private JIT parameters using FHE encryption
      * @param poolKey The pool to configure for
      * @param minSwapSize Encrypted minimum swap size to trigger JIT
-     * @param hedgePercentage0 Encrypted percentage (0-100) for token0
-     * @param hedgePercentage1 Encrypted percentage (0-100) for token1
+     * @param hedgePercentage0 Encrypted percentage (0-100) for token0 hedge threshold
+     * @param hedgePercentage1 Encrypted percentage (0-100) for token1 hedge threshold
      * @param autoHedgeEnabled Whether to enable automatic hedging
      */
     function configureLPSettings(
@@ -120,33 +120,32 @@ contract FHEConfigManager {
 
     /**
      * @notice Update auto-hedge setting for LP
+     * @param poolKey The pool
+     * @param autoHedgeEnabled New auto-hedge setting
      */
     function updateAutoHedge(PoolKey calldata poolKey, bool autoHedgeEnabled) external {
         PoolId poolId = poolKey.toId();
         LPConfig storage config = lpConfigs[poolId][msg.sender];
-
         if (!config.isActive) revert InvalidConfiguration();
 
         config.autoHedgeEnabled = autoHedgeEnabled;
-
         emit LPConfigUpdated(poolId, msg.sender, autoHedgeEnabled);
     }
 
     /**
      * @notice Deactivate LP participation in JIT operations
+     * @param poolKey The pool
      */
     function deactivateLP(PoolKey calldata poolKey) external {
         PoolId poolId = poolKey.toId();
         lpConfigs[poolId][msg.sender].isActive = false;
-
-        LPConfig storage config = lpConfigs[poolId][msg.sender];
-        FHE.decrypt(config.minSwapSize);
-
+        FHE.decrypt(lpConfigs[poolId][msg.sender].minSwapSize);
         emit LPDeactivated(poolId, msg.sender);
     }
 
     /**
      * @notice Reactivate LP participation
+     * @param poolKey The pool
      */
     function reactivateLP(PoolKey calldata poolKey) external {
         PoolId poolId = poolKey.toId();
@@ -154,13 +153,9 @@ contract FHEConfigManager {
 
         (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize);
         if (!minSwapDecrypted) revert DecryptionNotReady();
-
-        if (minSwapValue == 0) {
-            revert InvalidConfiguration();
-        }
+        if (minSwapValue == 0) revert InvalidConfiguration();
 
         config.isActive = true;
-
         emit LPConfigSet(poolId, msg.sender, true);
     }
 
@@ -187,9 +182,15 @@ contract FHEConfigManager {
         return (lpConfigs[poolId][lp].depositedAmount0, lpConfigs[poolId][lp].depositedAmount1);
     }
 
+    /**
+     * @notice Check if swap amount meets LP's encrypted threshold
+     * @param poolKey The pool
+     * @param lp LP address
+     * @param swapAmount Swap amount to check
+     * @return bool True if threshold is met
+     */
     function meetsThreshold(PoolKey calldata poolKey, address lp, uint128 swapAmount) external view returns (bool) {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-
         if (!config.isActive) return false;
 
         (uint128 minSwapValue, bool minSwapDecrypted) = FHE.getDecryptResultSafe(config.minSwapSize);
@@ -199,8 +200,12 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Check if profits should trigger auto-hedge (checks both tokens)
-     * @dev Returns true if EITHER token hits its threshold
+     * @notice Check if profits should trigger auto-hedge (either token triggers)
+     * @param poolKey The pool
+     * @param lp LP address
+     * @param currentProfits0 Current profit in token0
+     * @param currentProfits1 Current profit in token1
+     * @return bool True if either token's profit exceeds its threshold
      */
     function shouldAutoHedge(PoolKey calldata poolKey, address lp, uint256 currentProfits0, uint256 currentProfits1)
         external
@@ -208,12 +213,10 @@ contract FHEConfigManager {
         returns (bool)
     {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-
         if (!config.autoHedgeEnabled) return false;
 
         (uint32 hedgePercent0, bool hedge0Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage0);
         (uint32 hedgePercent1, bool hedge1Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage1);
-
         if (!hedge0Decrypted || !hedge1Decrypted) revert DecryptionNotReady();
 
         bool token0Threshold = false;
@@ -234,6 +237,12 @@ contract FHEConfigManager {
 
     /**
      * @notice Get which token(s) triggered the hedge
+     * @param poolKey The pool
+     * @param lp LP address
+     * @param currentProfits0 Current profit in token0
+     * @param currentProfits1 Current profit in token1
+     * @return token0Triggered True if token0 threshold met
+     * @return token1Triggered True if token1 threshold met
      */
     function getHedgeTriggers(PoolKey calldata poolKey, address lp, uint256 currentProfits0, uint256 currentProfits1)
         external
@@ -241,12 +250,10 @@ contract FHEConfigManager {
         returns (bool token0Triggered, bool token1Triggered)
     {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-
         if (!config.autoHedgeEnabled) return (false, false);
 
         (uint32 hedgePercent0, bool hedge0Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage0);
         (uint32 hedgePercent1, bool hedge1Decrypted) = FHE.getDecryptResultSafe(config.hedgePercentage1);
-
         if (!hedge0Decrypted || !hedge1Decrypted) revert DecryptionNotReady();
 
         if (config.depositedAmount0 > 0) {
@@ -263,18 +270,17 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Calculate hedge percentage (simplified for demo)
-     * @dev In production, decrypt only when needed and with proper access control
+     * @notice Get decrypted hedge percentage
+     * @dev Requires prior decryption via decryptHedgePercentage
      * @param poolKey Pool to check
      * @param lp LP address
-     * @return Hedge percentage (0-100)
+     * @return uint256 Hedge percentage for token0
+     * @return uint256 Hedge percentage for token1
      */
     function getHedgePercentage(PoolKey calldata poolKey, address lp) external view returns (uint256, uint256) {
         LPConfig memory config = lpConfigs[poolKey.toId()][lp];
-
         if (!config.autoHedgeEnabled) return (0, 0);
 
-        // Ensure to call decrypt first (decryptHedgePercentage) and wait some seconds before calling this function
         (uint32 hedgeValue0, bool hedgeDecrypted0) = FHE.getDecryptResultSafe(config.hedgePercentage0);
         if (!hedgeDecrypted0) revert DecryptionNotReady();
 
@@ -285,7 +291,7 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Decrypt hedge percentage (would be set for authorized hook only)
+     * @notice Decrypt hedge percentage (should be restricted to authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
      */
@@ -296,7 +302,7 @@ contract FHEConfigManager {
     }
 
     /**
-     * @notice Decrypt minimum swap size (would be set for authorized hook only)
+     * @notice Decrypt minimum swap size (should be restricted to authorized hook only)
      * @param poolKey Pool to query
      * @param lp LP address
      */
