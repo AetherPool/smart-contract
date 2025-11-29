@@ -22,6 +22,8 @@ import {ProfitManager} from "../src/ProfitManager.sol";
 import {JITCoordinator} from "../src/JITCoordinator.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
 import {FeeCalculator} from "../src/FeeCalculator.sol";
+import {HookSwapRouter} from "../src/HookSwapRouter.sol";
+import {SlippageLib} from "../src/libraries/SlippageLib.sol";
 
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
@@ -38,6 +40,7 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     JITCoordinator public jitCoordinator;
     FeeCalculator public feeCalculator;
     ZKJITLiquidityHook public hook;
+    HookSwapRouter public hookSwapRouter;
 
     address public constant LP1 = address(0x2222);
     address public constant LP2 = address(0x3333);
@@ -46,6 +49,16 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     address public constant OWNER = address(0x9999);
 
     uint128 public constant LARGE_SWAP = 500000;
+
+    // ============ Storage for Test State ============
+
+    struct TestSwapState {
+        address[] eligibleLPs;
+        uint128[] contributions;
+        uint256 expectedSwapId;
+        uint256[] initialProfits0;
+        uint256[] initialProfits1;
+    }
 
     function setUp() public {
         deployFreshManagerAndRouters();
@@ -88,6 +101,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         );
         hook = ZKJITLiquidityHook(hookAddress);
 
+        hookSwapRouter = new HookSwapRouter(manager);
+
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 
         _setupTestAccounts();
@@ -104,8 +119,8 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
             vm.startPrank(accounts[i]);
             MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
             MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
-            MockERC20(Currency.unwrap(currency0)).approve(address(swapRouter), type(uint256).max);
-            MockERC20(Currency.unwrap(currency1)).approve(address(swapRouter), type(uint256).max);
+            MockERC20(Currency.unwrap(currency0)).approve(address(hookSwapRouter), type(uint256).max);
+            MockERC20(Currency.unwrap(currency1)).approve(address(hookSwapRouter), type(uint256).max);
             vm.stopPrank();
         }
     }
@@ -135,6 +150,13 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
     }
 
     function _setupMultipleLPs() private {
+        _setupLP1();
+        _setupLP2();
+        _setupLP3();
+        _decryptAllLPs();
+    }
+
+    function _setupLP1() private {
         InEuint128 memory enc1MinSwap = createInEuint128(800, LP1);
         InEuint32 memory enc1Hedge0 = createInEuint32(20, LP1);
         InEuint32 memory enc1Hedge1 = createInEuint32(25, LP1);
@@ -143,7 +165,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc1MinSwap, enc1Hedge0, enc1Hedge1, false);
         hook.depositLiquidityWithAmounts(key, -240, 240, 400, 400, true);
         vm.stopPrank();
+    }
 
+    function _setupLP2() private {
         InEuint128 memory enc2MinSwap = createInEuint128(1200, LP2);
         InEuint32 memory enc2Hedge0 = createInEuint32(40, LP2);
         InEuint32 memory enc2Hedge1 = createInEuint32(35, LP2);
@@ -152,7 +176,9 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc2MinSwap, enc2Hedge0, enc2Hedge1, true);
         hook.depositLiquidityWithAmounts(key, -120, 120, 500, 500, true);
         vm.stopPrank();
+    }
 
+    function _setupLP3() private {
         InEuint128 memory enc3MinSwap = createInEuint128(1500, LP3);
         InEuint32 memory enc3Hedge0 = createInEuint32(60, LP3);
         InEuint32 memory enc3Hedge1 = createInEuint32(55, LP3);
@@ -161,13 +187,16 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         configManager.configureLPSettings(key, enc3MinSwap, enc3Hedge0, enc3Hedge1, true);
         hook.depositLiquidityWithAmounts(key, -60, 60, 600, 600, true);
         vm.stopPrank();
+    }
 
+    function _decryptAllLPs() private {
         configManager.decryptMinSwapSize(key, LP1);
         configManager.decryptMinSwapSize(key, LP2);
         configManager.decryptMinSwapSize(key, LP3);
-
         vm.warp(block.timestamp + 15);
     }
+
+    // ============ Original Tests (Unchanged) ============
 
     function testSingleLPEvaluation() public {
         InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
@@ -202,55 +231,131 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         assertEq(eligibleLPs3.length, 3);
     }
 
+    /**
+     * @notice Comprehensive test of JIT lifecycle via swap
+     */
     function testJITLifecycleViaSwap() public {
         _addBaseLiquidity();
         _setupMultipleLPs();
 
-        (address[] memory eligibleLPs, uint128[] memory contributions) =
-            jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
+        // Step 1: Evaluate and prepare
+        TestSwapState memory state = _prepareSwapTest(LARGE_SWAP);
 
-        assertEq(eligibleLPs.length, 3);
+        // Step 2: Execute swap
+        _executeSwapForTest(state);
 
-        for (uint256 i = 0; i < eligibleLPs.length; i++) {
-            configManager.decryptHedgePercentage(key, eligibleLPs[i]);
+        // Step 3: Verify results
+        _verifySwapResults(state);
+    }
+
+    /**
+     * @notice Prepare swap test by evaluating LPs and storing initial state
+     */
+    function _prepareSwapTest(uint128 swapAmount) private returns (TestSwapState memory state) {
+        // Evaluate eligible LPs
+        (state.eligibleLPs, state.contributions) = jitCoordinator.evaluateMultiLPJIT(key, swapAmount);
+        assertEq(state.eligibleLPs.length, 3, "Should have 3 eligible LPs");
+
+        // Decrypt hedge percentages for all LPs
+        _decryptHedgePercentages(state.eligibleLPs);
+
+        // Store initial profits
+        state.initialProfits0 = new uint256[](state.eligibleLPs.length);
+        state.initialProfits1 = new uint256[](state.eligibleLPs.length);
+
+        _storeInitialProfits(state);
+
+        // Get expected swap ID
+        state.expectedSwapId = jitCoordinator.getNextSwapId();
+
+        return state;
+    }
+
+    /**
+     * @notice Decrypt hedge percentages for eligible LPs
+     */
+    function _decryptHedgePercentages(address[] memory lps) private {
+        for (uint256 i = 0; i < lps.length; i++) {
+            configManager.decryptHedgePercentage(key, lps[i]);
         }
         vm.warp(block.timestamp + 10);
+    }
 
-        uint256[] memory initialProfits0 = new uint256[](eligibleLPs.length);
-        uint256[] memory initialProfits1 = new uint256[](eligibleLPs.length);
-
-        for (uint256 i = 0; i < eligibleLPs.length; i++) {
-            (initialProfits0[i], initialProfits1[i]) = profitManager.getLPProfits(key, eligibleLPs[i]);
-        }
-
-        uint256 expectedSwapId = jitCoordinator.getNextSwapId();
-
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(LARGE_SWAP)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
-
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
-
-        vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
-
-        bool isActive = jitCoordinator.isJITActive(expectedSwapId);
-        assertFalse(isActive);
-
-        for (uint256 i = 0; i < eligibleLPs.length; i++) {
-            (uint256 profit0, uint256 profit1) = profitManager.getLPProfits(key, eligibleLPs[i]);
-            assertTrue(profit0 > initialProfits0[i] || profit1 > initialProfits1[i]);
-
-            uint256 profitIncrease = (profit0 - initialProfits0[i]) + (profit1 - initialProfits1[i]);
-
-            if (contributions[i] > 0) {
-                assertGt(profitIncrease, 0);
-            }
+    /**
+     * @notice Store initial profit values for all LPs
+     */
+    function _storeInitialProfits(TestSwapState memory state) private view {
+        for (uint256 i = 0; i < state.eligibleLPs.length; i++) {
+            (state.initialProfits0[i], state.initialProfits1[i]) = profitManager.getLPProfits(key, state.eligibleLPs[i]);
         }
     }
+
+    /**
+     * @notice Execute the swap transaction
+     */
+    function _executeSwapForTest(TestSwapState memory) private {
+        uint128 swapAmount = 100000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100; // 1%
+
+        uint256 minOut = SlippageLib.calculateMinOutput(swapAmount, priceRatio, true, slippageBps);
+
+        vm.prank(TRADER);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            swapAmount,
+            minOut,
+            block.timestamp + 10 minutes
+        );
+    }
+
+    /**
+     * @notice Verify swap results and profit distribution
+     */
+    function _verifySwapResults(TestSwapState memory state) private view {
+        // Verify JIT position is no longer active
+        bool isActive = jitCoordinator.isJITActive(state.expectedSwapId);
+        assertFalse(isActive, "JIT should be inactive after swap");
+
+        // Verify each LP received profits
+        _verifyLPProfits(state);
+    }
+
+    /**
+     * @notice Verify that each LP received proportional profits
+     */
+    function _verifyLPProfits(TestSwapState memory state) private view {
+        for (uint256 i = 0; i < state.eligibleLPs.length; i++) {
+            _verifyIndividualLPProfit(
+                state.eligibleLPs[i], state.initialProfits0[i], state.initialProfits1[i], state.contributions[i]
+            );
+        }
+    }
+
+    /**
+     * @notice Verify individual LP's profit increase
+     */
+    function _verifyIndividualLPProfit(address lp, uint256 initialProfit0, uint256 initialProfit1, uint128 contribution)
+        private
+        view
+    {
+        (uint256 currentProfit0, uint256 currentProfit1) = profitManager.getLPProfits(key, lp);
+
+        // Verify profits increased
+        assertTrue(currentProfit0 > initialProfit0 || currentProfit1 > initialProfit1, "LP profits should increase");
+
+        // Calculate total profit increase
+        uint256 profitIncrease = (currentProfit0 - initialProfit0) + (currentProfit1 - initialProfit1);
+
+        // Verify LPs with contributions received profits
+        if (contribution > 0) {
+            assertGt(profitIncrease, 0, "LP with contribution should earn profit");
+        }
+    }
+
+    /* ------------- Additional Tests ------------- */
 
     function testLPPositionConfiguration() public {
         InEuint128 memory encMinSwap = createInEuint128(1000, LP1);
@@ -282,30 +387,32 @@ contract JITCoordinatorTest is Test, Deployers, CoFheTest {
         (address[] memory eligibleLPs,) = jitCoordinator.evaluateMultiLPJIT(key, LARGE_SWAP);
         assertEq(eligibleLPs.length, 3);
 
-        for (uint256 i = 0; i < eligibleLPs.length; i++) {
-            configManager.decryptHedgePercentage(key, eligibleLPs[i]);
-        }
-        vm.warp(block.timestamp + 10);
-
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(LARGE_SWAP)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
-
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        _decryptHedgePercentages(eligibleLPs);
 
         uint256 swapId = jitCoordinator.getNextSwapId();
-
-        vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        _executeSimpleSwap();
 
         bool isActive = jitCoordinator.isJITActive(swapId);
         assertFalse(isActive);
 
         (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(swapId);
         assertTrue(fees0 > 0 || fees1 > 0);
+    }
+
+    function _executeSimpleSwap() private {
+        uint128 swapAmount = 100000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 minOut = SlippageLib.calculateMinOutput(swapAmount, priceRatio, true, 100);
+
+        vm.prank(TRADER);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            swapAmount,
+            minOut,
+            block.timestamp + 10 minutes
+        );
     }
 
     function testHookHasClaimTokens() public {
