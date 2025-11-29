@@ -21,6 +21,8 @@ import {ProfitManager} from "../src/ProfitManager.sol";
 import {JITCoordinator} from "../src/JITCoordinator.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
 import {FeeCalculator} from "../src/FeeCalculator.sol";
+import {HookSwapRouter} from "../src/HookSwapRouter.sol";
+import {SlippageLib} from "../src/libraries/SlippageLib.sol";
 
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
@@ -36,6 +38,7 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
     JITCoordinator public jitCoordinator;
     FeeCalculator public feeCalculator;
     ZKJITLiquidityHook public hook;
+    HookSwapRouter public hookSwapRouter;
 
     address public constant LP1 = address(0x2222);
     address public constant LP2 = address(0x3333);
@@ -89,6 +92,8 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
         );
         hook = ZKJITLiquidityHook(hookAddress);
 
+        hookSwapRouter = new HookSwapRouter(manager);
+
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 
         _setupTestAccounts();
@@ -105,8 +110,8 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
             vm.startPrank(accounts[i]);
             MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
             MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
-            MockERC20(Currency.unwrap(currency0)).approve(address(swapRouter), type(uint256).max);
-            MockERC20(Currency.unwrap(currency1)).approve(address(swapRouter), type(uint256).max);
+            MockERC20(Currency.unwrap(currency0)).approve(address(hookSwapRouter), type(uint256).max);
+            MockERC20(Currency.unwrap(currency1)).approve(address(hookSwapRouter), type(uint256).max);
             vm.stopPrank();
         }
     }
@@ -200,17 +205,36 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
     function testSwapWithoutJIT() public {
         _addBaseLiquidity();
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        // SwapParams memory params = SwapParams({
+        //     zeroForOne: true,
+        //     amountSpecified: -int256(uint256(SWAP_AMOUNT)),
+        //     sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+        // });
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        // PoolSwapTest.TestSettings memory testSettings =
+        //     PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        // vm.prank(TRADER);
+        // swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
+
+        uint256 minOut = SlippageLib.calculateMinOutput(SWAP_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        uint256 amountOut = hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_AMOUNT,
+            minOut,
+            block.timestamp + 10 minutes
+        );
+
+        assertGt(amountOut, 0);
+        assertGe(amountOut, minOut);
     }
 
     function testSwapWithJIT() public {
@@ -228,17 +252,21 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
         configManager.decryptMinSwapSize(key, LP1);
         vm.warp(block.timestamp + 10);
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        uint256 minOut = SlippageLib.calculateMinOutput(SWAP_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_AMOUNT,
+            minOut,
+            block.timestamp + 10 minutes
+        );
 
         (uint256 profits0, uint256 profits1) = profitManager.getLPProfits(key, LP1);
         assertTrue(profits0 > 0 || profits1 > 0);
@@ -269,17 +297,21 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
         configManager.decryptMinSwapSize(key, LP2);
         vm.warp(block.timestamp + 10);
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        uint256 minOut = SlippageLib.calculateMinOutput(SWAP_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_AMOUNT,
+            minOut,
+            block.timestamp + 10 minutes
+        );
 
         (uint256 lp1Profits0, uint256 lp1Profits1) = profitManager.getLPProfits(key, LP1);
         (uint256 lp2Profits0, uint256 lp2Profits1) = profitManager.getLPProfits(key, LP2);
@@ -319,17 +351,21 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
 
         vm.txGasPrice(25 gwei);
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        uint256 minOut = SlippageLib.calculateMinOutput(SWAP_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_AMOUNT,
+            minOut,
+            block.timestamp + 10 minutes
+        );
     }
 
     function testPartialWithdrawal() public {
@@ -362,17 +398,21 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
         configManager.decryptMinSwapSize(key, LP1);
         vm.warp(block.timestamp + 10);
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        uint256 minOut = SlippageLib.calculateMinOutput(SWAP_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_AMOUNT,
+            minOut,
+            block.timestamp + 10 minutes
+        );
     }
 
     function testMultipleSwaps() public {
@@ -390,22 +430,38 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
         configManager.decryptMinSwapSize(key, LP1);
         vm.warp(block.timestamp + 10);
 
-        SwapParams memory params = SwapParams({
-            zeroForOne: true,
-            amountSpecified: -int256(uint256(SWAP_AMOUNT)),
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-        });
+        uint128 SWAP_A_AMOUNT = 50000;
+        uint128 SWAP_B_AMOUNT = 30000;
 
-        PoolSwapTest.TestSettings memory testSettings =
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        uint256 priceRatio = hook.getPriceRatio(key);
+        bool zeroForOne = true;
+        uint256 slippageBps = 100; // 1%
+
+        uint256 minOutA = SlippageLib.calculateMinOutput(SWAP_A_AMOUNT, priceRatio, zeroForOne, slippageBps);
 
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_A_AMOUNT,
+            minOutA,
+            block.timestamp + 10 minutes
+        );
 
         (uint256 profitsAfterFirst0, uint256 profitsAfterFirst1) = profitManager.getLPProfits(key, LP1);
 
+        uint256 minOutB = SlippageLib.calculateMinOutput(SWAP_B_AMOUNT, priceRatio, zeroForOne, slippageBps);
+
         vm.prank(TRADER);
-        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            SWAP_B_AMOUNT,
+            minOutB,
+            block.timestamp + 10 minutes
+        );
 
         (uint256 profitsAfterSecond0, uint256 profitsAfterSecond1) = profitManager.getLPProfits(key, LP1);
 
