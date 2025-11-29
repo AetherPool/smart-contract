@@ -16,16 +16,15 @@ import {IFeeCalculator} from "./interfaces/IFeeCalculator.sol";
 
 /**
  * @title JITCoordinator
- * @notice Coordinates multi-LP Just-In-Time liquidity operations
- * @dev Targets proportional LP contributions for swap coverage
- * @dev REFACTORED: Extracted functions to avoid stack too deep
+ * @notice Coordinates multi-LP Just-In-Time liquidity operations with proportional LP contributions
+ * @dev Evaluates eligible LPs, creates JIT positions, and distributes fees proportionally
  */
 contract JITCoordinator {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
 
-    // ============ Data Structures ============
+    // ============ Structs ============
 
     struct PendingJIT {
         uint256 swapId;
@@ -62,7 +61,6 @@ contract JITCoordinator {
         uint128 totalAvailableLiquidity;
     }
 
-    // ✅ NEW: Struct to reduce stack depth in distribution
     struct AutoHedgeResult {
         address lp;
         uint256 amount0;
@@ -123,8 +121,11 @@ contract JITCoordinator {
     // ============ External Functions ============
 
     /**
-     * @notice Evaluate which LPs should participate in JIT operation
-     * @dev Only considers JIT-enabled positions
+     * @notice Evaluate which LPs should participate in JIT operation based on their configurations and liquidity
+     * @param key Pool key
+     * @param swapAmount Size of the incoming swap
+     * @return eligibleLPs Array of eligible LP addresses
+     * @return contributions Array of liquidity contributions per LP
      */
     function evaluateMultiLPJIT(PoolKey calldata key, uint128 swapAmount)
         external
@@ -141,7 +142,6 @@ contract JITCoordinator {
 
         (, cache.currentTick,,) = poolManager.getSlot0(cache.poolId);
 
-        // Count eligible LPs and total available liquidity
         address[] memory tempEligibleLPs = new address[](cache.allLPs.length);
 
         for (uint256 i = 0; i < cache.allLPs.length; i++) {
@@ -157,7 +157,6 @@ contract JITCoordinator {
             return (new address[](0), new uint128[](0));
         }
 
-        // Calculate proportional contributions
         eligibleLPs = new address[](cache.eligibleCount);
         contributions = new uint128[](cache.eligibleCount);
 
@@ -171,7 +170,14 @@ contract JITCoordinator {
     }
 
     /**
-     * @notice Create multi-LP JIT operation
+     * @notice Create multi-LP JIT operation with at least 50% swap coverage
+     * @param key Pool key
+     * @param swapper Address initiating the swap
+     * @param swapAmount Swap amount
+     * @param params Swap parameters
+     * @param eligibleLPs Array of eligible LP addresses
+     * @param contributions Array of liquidity contributions
+     * @return swapId Unique identifier for this JIT operation
      */
     function createMultiLPJIT(
         PoolKey calldata key,
@@ -188,7 +194,6 @@ contract JITCoordinator {
             totalJITLiquidity += contributions[i];
         }
 
-        // Require at least 50% coverage
         if (totalJITLiquidity < swapAmount / 2) {
             emit InsufficientLiquidity(nextSwapId + 1, swapAmount, totalJITLiquidity);
             revert InsufficientJITLiquidity();
@@ -211,13 +216,17 @@ contract JITCoordinator {
         });
 
         emit JITRequested(swapId, key.toId(), swapper, swapAmount);
-
         return swapId;
     }
 
     /**
      * @notice Get JIT execution parameters (called by hook before execution)
-     * @dev Hook will use these to execute the actual modifyLiquidity
+     * @param swapId Swap identifier
+     * @return tickLower Lower tick for JIT position
+     * @return tickUpper Upper tick for JIT position
+     * @return totalLiquidity Total liquidity to inject
+     * @return lps Array of participating LPs
+     * @return contributions Array of LP contributions
      */
     function getJITExecutionParams(uint256 swapId)
         external
@@ -231,7 +240,6 @@ contract JITCoordinator {
         )
     {
         PendingJIT storage jit = pendingJITs[swapId];
-
         PoolId poolId = jit.poolKey.toId();
         (, int24 currentTick,,) = poolManager.getSlot0(poolId);
 
@@ -249,6 +257,10 @@ contract JITCoordinator {
 
     /**
      * @notice Record JIT execution (called by hook after modifyLiquidity)
+     * @param swapId Swap identifier
+     * @param tickLower Lower tick of position
+     * @param tickUpper Upper tick of position
+     * @param totalLiquidity Total liquidity injected
      */
     function recordJITExecution(uint256 swapId, int24 tickLower, int24 tickUpper, uint128 totalLiquidity) external {
         require(msg.sender == hook, "Only hook");
@@ -277,6 +289,11 @@ contract JITCoordinator {
 
     /**
      * @notice Get JIT position for removal (called by hook in afterSwap)
+     * @param swapId Swap identifier
+     * @return isActive Whether position is active
+     * @return tickLower Lower tick
+     * @return tickUpper Upper tick
+     * @return totalLiquidity Total liquidity
      */
     function getJITPositionForRemoval(uint256 swapId)
         external
@@ -289,69 +306,86 @@ contract JITCoordinator {
 
     /**
      * @notice Remove JIT liquidity after swap completion and distribute fees
+     * @param key Pool key
+     * @param swapId Swap identifier
+     * @param delta Swap balance delta
+     * @param appliedFee Fee tier applied to swap
      */
     function removeJITLiquidity(PoolKey calldata key, uint256 swapId, BalanceDelta delta, uint24 appliedFee) external {
         JITLiquidityPosition storage position = jitPositions[swapId];
-
         if (!position.isActive) return;
 
         position.isActive = false;
         PoolId poolId = key.toId();
 
-        // Calculate total fees from this swap
         (uint256 totalFees0, uint256 totalFees1) =
             IFeeCalculator(feeCalculator).calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
 
         position.totalFees0 = totalFees0;
         position.totalFees1 = totalFees1;
 
-        // Distribute fees proportionally to participating LPs
         _distributeJITFees(key, position);
-
         emit JITRemoved(swapId, poolId, totalFees0, totalFees1);
+    }
+
+    /**
+     * @notice Remove JIT liquidity and distribute fees with auto-hedge support
+     * @param key Pool key
+     * @param swapId Swap identifier
+     * @param delta Swap balance delta
+     * @param appliedFee Fee tier applied
+     * @return autoHedgeLPs Array of LPs that triggered auto-hedge
+     * @return amounts0 Array of token0 amounts to transfer
+     * @return amounts1 Array of token1 amounts to transfer
+     */
+    function removeJITLiquidityWithAutoHedge(
+        PoolKey calldata key,
+        uint256 swapId,
+        BalanceDelta delta,
+        uint24 appliedFee
+    ) external returns (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1) {
+        JITLiquidityPosition storage position = jitPositions[swapId];
+
+        if (!position.isActive || position.totalLiquidity == 0) {
+            return (new address[](0), new uint256[](0), new uint256[](0));
+        }
+
+        position.isActive = false;
+
+        _calculateAndStoreFees(key, position, delta, appliedFee);
+        (autoHedgeLPs, amounts0, amounts1) = _distributeJITFeesWithAutoHedge(key, position);
+
+        emit JITRemoved(swapId, key.toId(), position.totalFees0, position.totalFees1);
+        return (autoHedgeLPs, amounts0, amounts1);
     }
 
     // ============ Internal Functions ============
 
-    /**
-     * @notice Check if LP is eligible for JIT participation
-     */
     function _isLPEligible(PoolKey calldata key, address lp, PoolId poolId, int24 currentTick, uint128 swapAmount)
         private
         view
         returns (bool)
     {
-        if (!IFHEConfigManager(configManager).isActive(key, lp)) {
-            return false;
-        }
-
+        if (!IFHEConfigManager(configManager).isActive(key, lp)) return false;
         if (!ILPPositionManager(positionManager).hasOverlappingPosition(poolId, lp, currentTick, TICK_RANGE)) {
             return false;
         }
-
         return IFHEConfigManager(configManager).meetsThreshold(key, lp, swapAmount);
     }
 
-    /**
-     * @notice Distribute JIT fees to participating LPs based on their liquidity contribution
-     */
     function _distributeJITFees(PoolKey memory key, JITLiquidityPosition storage position) private {
         for (uint256 i = 0; i < position.participatingLPs.length; i++) {
             address lp = position.participatingLPs[i];
             uint128 contribution = position.lpContributions[i];
 
-            // Calculate LP's proportional share of fees
             (uint256 lpFees0, uint256 lpFees1) = IFeeCalculator(feeCalculator).calculateJITFeeShare(
                 position.totalFees0, position.totalFees1, contribution, position.totalLiquidity
             );
 
             if (lpFees0 > 0 || lpFees1 > 0) {
-                // Accrue profits through profit manager
                 IProfitManager(profitManager).accrueProfit(key, lp, lpFees0, lpFees1);
-
                 emit JITFeesDistributed(position.swapId, lp, lpFees0, lpFees1);
 
-                // Check if auto-hedge should trigger
                 if (IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lp)) {
                     IProfitManager(profitManager).checkAndExecuteAutoHedge(key, lp);
                 }
@@ -359,9 +393,6 @@ contract JITCoordinator {
         }
     }
 
-    /**
-     * @notice Calculate LP's contribution to JIT operation
-     */
     function _calculateLPContribution(PoolId poolId, address lp, uint128 swapAmount, uint128 totalAvailableLiquidity)
         private
         view
@@ -370,14 +401,104 @@ contract JITCoordinator {
         if (totalAvailableLiquidity == 0) return 0;
 
         uint128 lpLiquidity = ILPPositionManager(positionManager).getTotalLiquidity(poolId, lp);
-
-        // Calculate proportional share: (swapAmount * lpLiquidity) / totalAvailableLiquidity
         uint256 lpShare = (uint256(swapAmount) * uint256(lpLiquidity)) / uint256(totalAvailableLiquidity);
-
-        // Cap at what LP actually has available
         uint128 contribution = lpShare > lpLiquidity ? lpLiquidity : uint128(lpShare);
 
         return contribution;
+    }
+
+    function _calculateAndStoreFees(
+        PoolKey calldata key,
+        JITLiquidityPosition storage position,
+        BalanceDelta delta,
+        uint24 appliedFee
+    ) private {
+        (uint256 totalFees0, uint256 totalFees1) =
+            IFeeCalculator(feeCalculator).calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
+
+        position.totalFees0 = totalFees0;
+        position.totalFees1 = totalFees1;
+    }
+
+    function _distributeJITFeesWithAutoHedge(PoolKey memory key, JITLiquidityPosition storage position)
+        private
+        returns (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1)
+    {
+        AutoHedgeResult[] memory tempResults = new AutoHedgeResult[](position.participatingLPs.length);
+        uint256 autoHedgeCount = 0;
+
+        for (uint256 i = 0; i < position.participatingLPs.length; i++) {
+            AutoHedgeResult memory result = _processLPFeeDistribution(key, position, i);
+
+            if (result.amount0 > 0 || result.amount1 > 0) {
+                tempResults[autoHedgeCount] = result;
+                autoHedgeCount++;
+            }
+        }
+
+        return _convertAutoHedgeResults(tempResults, autoHedgeCount);
+    }
+
+    function _processLPFeeDistribution(PoolKey memory key, JITLiquidityPosition storage position, uint256 lpIndex)
+        private
+        returns (AutoHedgeResult memory result)
+    {
+        address lp = position.participatingLPs[lpIndex];
+        uint128 contribution = position.lpContributions[lpIndex];
+
+        (uint256 lpFees0, uint256 lpFees1) = _calculateLPFees(position, contribution);
+
+        if (lpFees0 == 0 && lpFees1 == 0) {
+            return AutoHedgeResult(address(0), 0, 0);
+        }
+
+        IProfitManager(profitManager).accrueProfit(key, lp, lpFees0, lpFees1);
+        emit JITFeesDistributed(position.swapId, lp, lpFees0, lpFees1);
+
+        return _checkAutoHedgeForLP(key, lp);
+    }
+
+    function _calculateLPFees(JITLiquidityPosition storage position, uint128 contribution)
+        private
+        view
+        returns (uint256 lpFees0, uint256 lpFees1)
+    {
+        return IFeeCalculator(feeCalculator).calculateJITFeeShare(
+            position.totalFees0, position.totalFees1, contribution, position.totalLiquidity
+        );
+    }
+
+    function _checkAutoHedgeForLP(PoolKey memory key, address lp) private returns (AutoHedgeResult memory result) {
+        if (!IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lp)) {
+            return AutoHedgeResult(address(0), 0, 0);
+        }
+
+        (bool shouldHedge, uint256 amount0, uint256 amount1,,) =
+            IProfitManager(profitManager).checkAndExecuteAutoHedge(key, lp);
+
+        if (shouldHedge && (amount0 > 0 || amount1 > 0)) {
+            return AutoHedgeResult(lp, amount0, amount1);
+        }
+
+        return AutoHedgeResult(address(0), 0, 0);
+    }
+
+    function _convertAutoHedgeResults(AutoHedgeResult[] memory results, uint256 count)
+        private
+        pure
+        returns (address[] memory lps, uint256[] memory amounts0, uint256[] memory amounts1)
+    {
+        lps = new address[](count);
+        amounts0 = new uint256[](count);
+        amounts1 = new uint256[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            lps[i] = results[i].lp;
+            amounts0[i] = results[i].amount0;
+            amounts1[i] = results[i].amount1;
+        }
+
+        return (lps, amounts0, amounts1);
     }
 
     // ============ View Functions ============
@@ -401,153 +522,5 @@ contract JITCoordinator {
     function getJITFees(uint256 swapId) external view returns (uint256 fees0, uint256 fees1) {
         JITLiquidityPosition storage position = jitPositions[swapId];
         return (position.totalFees0, position.totalFees1);
-    }
-
-    /**
-     * @notice Remove JIT liquidity after swap completion and distribute fees
-     * ✅ REFACTORED: Broken into smaller functions to avoid stack too deep
-     */
-    function removeJITLiquidityWithAutoHedge(
-        PoolKey calldata key,
-        uint256 swapId,
-        BalanceDelta delta,
-        uint24 appliedFee
-    ) external returns (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1) {
-        JITLiquidityPosition storage position = jitPositions[swapId];
-
-        if (!position.isActive || position.totalLiquidity == 0) {
-            return (new address[](0), new uint256[](0), new uint256[](0));
-        }
-
-        position.isActive = false;
-
-        // Calculate and store fees
-        _calculateAndStoreFees(key, position, delta, appliedFee);
-
-        // Distribute fees and collect auto-hedge info
-        (autoHedgeLPs, amounts0, amounts1) = _distributeJITFeesWithAutoHedge(key, position);
-
-        emit JITRemoved(swapId, key.toId(), position.totalFees0, position.totalFees1);
-
-        return (autoHedgeLPs, amounts0, amounts1);
-    }
-
-    /**
-     * ✅ NEW: Extracted to reduce stack depth
-     */
-    function _calculateAndStoreFees(
-        PoolKey calldata key,
-        JITLiquidityPosition storage position,
-        BalanceDelta delta,
-        uint24 appliedFee
-    ) private {
-        (uint256 totalFees0, uint256 totalFees1) =
-            IFeeCalculator(feeCalculator).calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
-
-        position.totalFees0 = totalFees0;
-        position.totalFees1 = totalFees1;
-    }
-
-    /**
-     * ✅ REFACTORED: Distribute fees and collect auto-hedge information
-     * Broken into smaller pieces to reduce stack depth
-     */
-    function _distributeJITFeesWithAutoHedge(PoolKey memory key, JITLiquidityPosition storage position)
-        private
-        returns (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1)
-    {
-        // Temporary storage for auto-hedge results
-        AutoHedgeResult[] memory tempResults = new AutoHedgeResult[](position.participatingLPs.length);
-        uint256 autoHedgeCount = 0;
-
-        // Process each LP
-        for (uint256 i = 0; i < position.participatingLPs.length; i++) {
-            AutoHedgeResult memory result = _processLPFeeDistribution(key, position, i);
-
-            if (result.amount0 > 0 || result.amount1 > 0) {
-                tempResults[autoHedgeCount] = result;
-                autoHedgeCount++;
-            }
-        }
-
-        // Convert to return arrays
-        return _convertAutoHedgeResults(tempResults, autoHedgeCount);
-    }
-
-    /**
-     * ✅ NEW: Process single LP fee distribution
-     */
-    function _processLPFeeDistribution(PoolKey memory key, JITLiquidityPosition storage position, uint256 lpIndex)
-        private
-        returns (AutoHedgeResult memory result)
-    {
-        address lp = position.participatingLPs[lpIndex];
-        uint128 contribution = position.lpContributions[lpIndex];
-
-        // Calculate fees
-        (uint256 lpFees0, uint256 lpFees1) = _calculateLPFees(position, contribution);
-
-        if (lpFees0 == 0 && lpFees1 == 0) {
-            return AutoHedgeResult(address(0), 0, 0);
-        }
-
-        // Accrue profits
-        IProfitManager(profitManager).accrueProfit(key, lp, lpFees0, lpFees1);
-        emit JITFeesDistributed(position.swapId, lp, lpFees0, lpFees1);
-
-        // Check auto-hedge
-        return _checkAutoHedgeForLP(key, lp);
-    }
-
-    /**
-     * ✅ NEW: Calculate LP fees
-     */
-    function _calculateLPFees(JITLiquidityPosition storage position, uint128 contribution)
-        private
-        view
-        returns (uint256 lpFees0, uint256 lpFees1)
-    {
-        return IFeeCalculator(feeCalculator).calculateJITFeeShare(
-            position.totalFees0, position.totalFees1, contribution, position.totalLiquidity
-        );
-    }
-
-    /**
-     * ✅ NEW: Check if LP should auto-hedge
-     */
-    function _checkAutoHedgeForLP(PoolKey memory key, address lp) private returns (AutoHedgeResult memory result) {
-        if (!IFHEConfigManager(configManager).hasAutoHedgeEnabled(key, lp)) {
-            return AutoHedgeResult(address(0), 0, 0);
-        }
-
-        (bool shouldHedge, uint256 amount0, uint256 amount1,,) =
-            IProfitManager(profitManager).checkAndExecuteAutoHedge(key, lp);
-
-        if (shouldHedge && (amount0 > 0 || amount1 > 0)) {
-            return AutoHedgeResult(lp, amount0, amount1);
-        }
-
-        return AutoHedgeResult(address(0), 0, 0);
-    }
-
-    /**
-     * ✅ NEW: Convert AutoHedgeResult array to return format
-     */
-    function _convertAutoHedgeResults(AutoHedgeResult[] memory results, uint256 count)
-        private
-        pure
-        returns (address[] memory lps, uint256[] memory amounts0, uint256[] memory amounts1)
-    {
-        lps = new address[](count);
-        amounts0 = new uint256[](count);
-        amounts1 = new uint256[](count);
-
-        for (uint256 i = 0; i < count; i++) {
-            lps[i] = results[i].lp;
-            amounts0[i] = results[i].amount0;
-            amounts1[i] = results[i].amount1;
-        }
-
-        return (lps, amounts0, amounts1);
     }
 }
