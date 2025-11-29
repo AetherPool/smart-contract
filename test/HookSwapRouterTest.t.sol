@@ -182,9 +182,7 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.InsufficientOutputAmount.selector);
-        hookSwapRouter.swapExactInputForOutput(
-            key, tokenIn, tokenOut, SWAP_AMOUNT, minAmountOut, block.timestamp + 100
-        );
+        hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, minAmountOut, block.timestamp + 100);
     }
 
     function testSwapReverseDirection() public {
