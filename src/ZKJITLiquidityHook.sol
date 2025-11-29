@@ -25,69 +25,21 @@ import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 /**
  * @title ZKJITLiquidityHook
- * @notice Main hook orchestrator with JIT liquidity coordination and passive/active deposits
- * @dev Enhanced with deposit type selection and price-based liquidity calculations
+ * @notice Main hook orchestrator for JIT liquidity coordination with dynamic fees and passive/active LP strategies
+ * @dev Coordinates JIT liquidity injection, dynamic fee application, and profit distribution with auto-hedge support
  */
 contract ZKJITLiquidityHook is BaseHook {
     using PoolIdLibrary for PoolKey;
     using LPFeeLibrary for uint24;
     using CurrencySettler for Currency;
 
-    // ============ Module Contracts ============
-
-    ILPPositionManager public immutable positionManager;
-    IFHEConfigManager public immutable configManager;
-    IDynamicFeeManager public immutable feeManager;
-    IProfitManager public immutable profitManager;
-    IJITCoordinator public immutable jitCoordinator;
-    IFeeCalculator public immutable feeCalculator;
-
-    // ============ Storage ============
-
-    uint256 public currentSwapId;
-    uint24 public currentAppliedFee;
-
-    // ============ Structs for Stack Management ============
+    // ============ Structs ============
 
     struct JITExecutionParams {
         int24 tickLower;
         int24 tickUpper;
         uint128 totalLiquidity;
     }
-
-    // ============ Events ============
-
-    event HookInitialized(
-        address positionManager,
-        address configManager,
-        address feeManager,
-        address profitManager,
-        address jitCoordinator,
-        address feeCalculator
-    );
-
-    event LiquidityDeposited(
-        address indexed lp,
-        PoolId indexed poolId,
-        uint256 tokenId,
-        uint128 liquidity,
-        uint256 amount0,
-        uint256 amount1,
-        bool isJITEnabled
-    );
-
-    event LiquidityWithdrawn(
-        address indexed lp, PoolId indexed poolId, uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1
-    );
-
-    event SwapProcessed(PoolId indexed poolId, uint256 swapId, uint24 dynamicFee, uint256 eligibleLPs);
-    event ActualFeesCollected(PoolId indexed poolId, uint256 swapId, uint256 fees0, uint256 fees1);
-
-    // ============ Errors ============
-
-    error MustUseDynamicFee();
-
-    // ============ Callback Data ============
 
     struct AddLiquidityCallbackData {
         PoolKey poolKey;
@@ -105,6 +57,47 @@ contract ZKJITLiquidityHook is BaseHook {
         uint256 tokenId;
         uint128 liquidityDelta;
     }
+
+    // ============ Storage ============
+
+    ILPPositionManager public immutable positionManager;
+    IFHEConfigManager public immutable configManager;
+    IDynamicFeeManager public immutable feeManager;
+    IProfitManager public immutable profitManager;
+    IJITCoordinator public immutable jitCoordinator;
+    IFeeCalculator public immutable feeCalculator;
+
+    uint256 public currentSwapId;
+    uint24 public currentAppliedFee;
+
+    // ============ Events ============
+
+    event HookInitialized(
+        address positionManager,
+        address configManager,
+        address feeManager,
+        address profitManager,
+        address jitCoordinator,
+        address feeCalculator
+    );
+    event LiquidityDeposited(
+        address indexed lp,
+        PoolId indexed poolId,
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 amount0,
+        uint256 amount1,
+        bool isJITEnabled
+    );
+    event LiquidityWithdrawn(
+        address indexed lp, PoolId indexed poolId, uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1
+    );
+    event SwapProcessed(PoolId indexed poolId, uint256 swapId, uint24 dynamicFee, uint256 eligibleLPs);
+    event ActualFeesCollected(PoolId indexed poolId, uint256 swapId, uint256 fees0, uint256 fees1);
+
+    // ============ Errors ============
+
+    error MustUseDynamicFee();
 
     // ============ Constructor ============
 
@@ -129,7 +122,7 @@ contract ZKJITLiquidityHook is BaseHook {
         );
     }
 
-    // ============ Hook Permissions ============
+    // ============ Hook Configuration ============
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
@@ -155,134 +148,21 @@ contract ZKJITLiquidityHook is BaseHook {
         return this.beforeInitialize.selector;
     }
 
-    // ============ Hook Implementation (REFACTORED) ============
+    // ============ Hook Implementation ============
 
-    /**
-     * @notice Hook called before swap execution - REFACTORED to avoid stack too deep
-     */
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        // Calculate swap amount once
         uint128 swapAmount = _getSwapAmount(params);
-
-        // Handle JIT liquidity injection
         uint256 eligibleCount = _handleJITInjection(key, sender, params, swapAmount);
-
-        // Get and apply dynamic fee
         uint24 feeWithFlag = _applyDynamicFee();
 
         emit SwapProcessed(key.toId(), currentSwapId, currentAppliedFee, eligibleCount);
-
         return (this.beforeSwap.selector, toBeforeSwapDelta(0, 0), feeWithFlag);
     }
 
-    /**
-     * @notice Extract swap amount calculation to reduce stack depth
-     */
-    function _getSwapAmount(SwapParams calldata params) private pure returns (uint128) {
-        return uint128(params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified));
-    }
-
-    /**
-     * @notice Handle JIT injection logic separately
-     * @return eligibleCount Number of eligible LPs
-     */
-    function _handleJITInjection(PoolKey calldata key, address sender, SwapParams calldata params, uint128 swapAmount)
-        private
-        returns (uint256 eligibleCount)
-    {
-        // Evaluate eligible LPs for JIT
-        (address[] memory eligibleLPs, uint128[] memory contributions) =
-            jitCoordinator.evaluateMultiLPJIT(key, swapAmount);
-
-        eligibleCount = eligibleLPs.length;
-
-        if (eligibleCount == 0) {
-            return 0;
-        }
-
-        // Create JIT operation
-        currentSwapId = jitCoordinator.createMultiLPJIT(key, sender, swapAmount, params, eligibleLPs, contributions);
-
-        // Get execution params
-        JITExecutionParams memory jitParams = _getJITParams(currentSwapId);
-
-        // Inject liquidity
-        _executeJITInjection(key, currentSwapId, jitParams);
-
-        // Record execution
-        jitCoordinator.recordJITExecution(
-            currentSwapId, jitParams.tickLower, jitParams.tickUpper, jitParams.totalLiquidity
-        );
-
-        return eligibleCount;
-    }
-
-    /**
-     * @notice Get JIT execution parameters
-     */
-    function _getJITParams(uint256 swapId) private view returns (JITExecutionParams memory) {
-        (int24 tickLower, int24 tickUpper, uint128 totalLiquidity,,) = jitCoordinator.getJITExecutionParams(swapId);
-
-        return JITExecutionParams({tickLower: tickLower, tickUpper: tickUpper, totalLiquidity: totalLiquidity});
-    }
-
-    /**
-     * @notice Execute JIT liquidity injection
-     */
-    function _executeJITInjection(PoolKey calldata key, uint256 swapId, JITExecutionParams memory params) private {
-        // Add liquidity
-        BalanceDelta delta = _injectLiquidity(key, swapId, params.tickLower, params.tickUpper, params.totalLiquidity);
-
-        // Settle debts using claim tokens
-        _settleJITDebts(key, delta);
-    }
-
-    /**
-     * @notice Settle JIT debts by burning claim tokens
-     */
-    function _settleJITDebts(PoolKey calldata key, BalanceDelta delta) private {
-        if (delta.amount0() < 0) {
-            key.currency0.settle(poolManager, address(this), uint256(uint128(-delta.amount0())), true);
-        }
-        if (delta.amount1() < 0) {
-            key.currency1.settle(poolManager, address(this), uint256(uint128(-delta.amount1())), true);
-        }
-    }
-
-    /**
-     * @notice Apply dynamic fee and return flag
-     */
-    function _applyDynamicFee() private returns (uint24) {
-        (uint24 dynamicFee,) = feeManager.getFee();
-        currentAppliedFee = dynamicFee;
-        return dynamicFee | LPFeeLibrary.OVERRIDE_FEE_FLAG;
-    }
-
-    /**
-     * @notice Inject liquidity into pool
-     */
-    function _injectLiquidity(PoolKey calldata key, uint256 swapId, int24 tickLower, int24 tickUpper, uint128 liquidity)
-        private
-        returns (BalanceDelta)
-    {
-        ModifyLiquidityParams memory modParams = ModifyLiquidityParams({
-            tickLower: tickLower,
-            tickUpper: tickUpper,
-            liquidityDelta: int256(uint256(liquidity)),
-            salt: bytes32(swapId)
-        });
-
-        (BalanceDelta delta,) = poolManager.modifyLiquidity(key, modParams, "");
-        return delta;
-    }
-
-    /**
-     * @notice Hook called after swap execution
-     */
     function _afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta delta, bytes calldata)
         internal
         override
@@ -295,95 +175,23 @@ contract ZKJITLiquidityHook is BaseHook {
         }
 
         feeManager.updateMovingAverage();
-
         return (this.afterSwap.selector, 0);
     }
 
-    /**
-     * @notice Handle JIT liquidity removal - extracted to reduce stack depth
-     */
-    function _handleJITRemoval(PoolKey calldata key, BalanceDelta swapDelta) private {
-        // Get position details
-        (bool isActive, int24 tickLower, int24 tickUpper, uint128 totalLiquidity) =
-            jitCoordinator.getJITPositionForRemoval(currentSwapId);
-
-        if (!isActive || totalLiquidity == 0) {
-            return;
-        }
-
-        // Remove liquidity
-        BalanceDelta removeDelta = _removeJITLiquidity(key, tickLower, tickUpper, totalLiquidity);
-
-        // Take credits as claim tokens
-        _takeJITCredits(key, removeDelta);
-
-        // Process fees and get any auto-hedge transfers needed
-        (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1) =
-            jitCoordinator.removeJITLiquidityWithAutoHedge(key, currentSwapId, swapDelta, currentAppliedFee);
-
-        // ✅ Transfer auto-hedge profits using claim tokens
-        for (uint256 i = 0; i < autoHedgeLPs.length; i++) {
-            if (amounts0[i] > 0 || amounts1[i] > 0) {
-                _transferAutoHedgeProfits(key, autoHedgeLPs[i], amounts0[i], amounts1[i]);
-            }
-        }
-
-        // Emit fees collected
-        (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(currentSwapId);
-        emit ActualFeesCollected(key.toId(), currentSwapId, fees0, fees1);
-    }
+    // ============ External Functions ============
 
     /**
-     * @notice Transfer auto-hedge profits using claim tokens
-     * ✅ NEW: This is called by hook which has unlock context
-     */
-    function _transferAutoHedgeProfits(PoolKey calldata key, address lp, uint256 amount0, uint256 amount1) private {
-        if (amount0 > 0) {
-            // Burn hook's claim tokens to cover the debt
-            key.currency0.settle(poolManager, address(this), amount0, true);
-            // Transfer actual tokens to LP
-            key.currency0.take(poolManager, lp, amount0, false);
-        }
-        if (amount1 > 0) {
-            key.currency1.settle(poolManager, address(this), amount1, true);
-            key.currency1.take(poolManager, lp, amount1, false);
-        }
-    }
-
-    /**
-     * @notice Remove JIT liquidity from pool
-     */
-    function _removeJITLiquidity(PoolKey calldata key, int24 tickLower, int24 tickUpper, uint128 totalLiquidity)
-        private
-        returns (BalanceDelta)
-    {
-        ModifyLiquidityParams memory removeParams = ModifyLiquidityParams({
-            tickLower: tickLower,
-            tickUpper: tickUpper,
-            liquidityDelta: -int256(uint256(totalLiquidity)),
-            salt: bytes32(currentSwapId)
-        });
-
-        (BalanceDelta removeDelta,) = poolManager.modifyLiquidity(key, removeParams, "");
-        return removeDelta;
-    }
-
-    /**
-     * @notice Take JIT credits as claim tokens
-     */
-    function _takeJITCredits(PoolKey calldata key, BalanceDelta delta) private {
-        if (delta.amount0() > 0) {
-            key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), true);
-        }
-        if (delta.amount1() > 0) {
-            key.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), true);
-        }
-    }
-
-    // ============ Liquidity Functions ============
-
-    /**
-     * @notice Deposit liquidity with automatic liquidity calculation
+     * @notice Deposit liquidity with automatic liquidity calculation from token amounts
+     * @param key Pool key
+     * @param tickLower Lower tick of position
+     * @param tickUpper Upper tick of position
+     * @param amount0Desired Desired amount of token0
+     * @param amount1Desired Desired amount of token1
+     * @param isJITEnabled True for active JIT participation, false for passive liquidity
+     * @return tokenId Unique identifier for the LP position
+     * @return liquidity Calculated liquidity amount
+     * @return amount0 Actual amount of token0 deposited
+     * @return amount1 Actual amount of token1 deposited
      */
     function depositLiquidityWithAmounts(
         PoolKey calldata key,
@@ -415,12 +223,16 @@ contract ZKJITLiquidityHook is BaseHook {
         (tokenId, liquidity) = abi.decode(result, (uint256, uint128));
 
         emit LiquidityDeposited(msg.sender, key.toId(), tokenId, liquidity, amount0, amount1, isJITEnabled);
-
         return (tokenId, liquidity, amount0, amount1);
     }
 
     /**
      * @notice Withdraw liquidity using ERC1155 token
+     * @param key Pool key
+     * @param tokenId Position token ID
+     * @param liquidityDelta Amount of liquidity to remove
+     * @return amount0 Amount of token0 withdrawn
+     * @return amount1 Amount of token1 withdrawn
      */
     function withdrawLiquidity(PoolKey calldata key, uint256 tokenId, uint128 liquidityDelta)
         external
@@ -442,12 +254,13 @@ contract ZKJITLiquidityHook is BaseHook {
         (amount0, amount1) = abi.decode(result, (uint256, uint256));
 
         emit LiquidityWithdrawn(msg.sender, key.toId(), tokenId, liquidityDelta, amount0, amount1);
-
         return (amount0, amount1);
     }
 
     /**
-     * @notice Updated unlock callback to handle BOTH deposits and withdrawals
+     * @notice Unlock callback handler for deposit and withdrawal operations
+     * @param data Encoded callback data
+     * @return bytes Encoded result
      */
     function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
         bytes1 callbackType = data[0];
@@ -461,39 +274,153 @@ contract ZKJITLiquidityHook is BaseHook {
         }
     }
 
-    /**
-     * @notice Handle add liquidity callback
-     */
+    // ============ Internal Functions ============
+
+    function _getSwapAmount(SwapParams calldata params) private pure returns (uint128) {
+        return uint128(params.amountSpecified > 0 ? uint256(params.amountSpecified) : uint256(-params.amountSpecified));
+    }
+
+    function _handleJITInjection(PoolKey calldata key, address sender, SwapParams calldata params, uint128 swapAmount)
+        private
+        returns (uint256 eligibleCount)
+    {
+        (address[] memory eligibleLPs, uint128[] memory contributions) =
+            jitCoordinator.evaluateMultiLPJIT(key, swapAmount);
+
+        eligibleCount = eligibleLPs.length;
+        if (eligibleCount == 0) return 0;
+
+        currentSwapId = jitCoordinator.createMultiLPJIT(key, sender, swapAmount, params, eligibleLPs, contributions);
+
+        JITExecutionParams memory jitParams = _getJITParams(currentSwapId);
+        _executeJITInjection(key, currentSwapId, jitParams);
+
+        jitCoordinator.recordJITExecution(
+            currentSwapId, jitParams.tickLower, jitParams.tickUpper, jitParams.totalLiquidity
+        );
+
+        return eligibleCount;
+    }
+
+    function _getJITParams(uint256 swapId) private view returns (JITExecutionParams memory) {
+        (int24 tickLower, int24 tickUpper, uint128 totalLiquidity,,) = jitCoordinator.getJITExecutionParams(swapId);
+        return JITExecutionParams({tickLower: tickLower, tickUpper: tickUpper, totalLiquidity: totalLiquidity});
+    }
+
+    function _executeJITInjection(PoolKey calldata key, uint256 swapId, JITExecutionParams memory params) private {
+        BalanceDelta delta = _injectLiquidity(key, swapId, params.tickLower, params.tickUpper, params.totalLiquidity);
+        _settleJITDebts(key, delta);
+    }
+
+    function _settleJITDebts(PoolKey calldata key, BalanceDelta delta) private {
+        if (delta.amount0() < 0) {
+            key.currency0.settle(poolManager, address(this), uint256(uint128(-delta.amount0())), true);
+        }
+        if (delta.amount1() < 0) {
+            key.currency1.settle(poolManager, address(this), uint256(uint128(-delta.amount1())), true);
+        }
+    }
+
+    function _applyDynamicFee() private returns (uint24) {
+        (uint24 dynamicFee,) = feeManager.getFee();
+        currentAppliedFee = dynamicFee;
+        return dynamicFee | LPFeeLibrary.OVERRIDE_FEE_FLAG;
+    }
+
+    function _injectLiquidity(PoolKey calldata key, uint256 swapId, int24 tickLower, int24 tickUpper, uint128 liquidity)
+        private
+        returns (BalanceDelta)
+    {
+        ModifyLiquidityParams memory modParams = ModifyLiquidityParams({
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidityDelta: int256(uint256(liquidity)),
+            salt: bytes32(swapId)
+        });
+
+        (BalanceDelta delta,) = poolManager.modifyLiquidity(key, modParams, "");
+        return delta;
+    }
+
+    function _handleJITRemoval(PoolKey calldata key, BalanceDelta swapDelta) private {
+        (bool isActive, int24 tickLower, int24 tickUpper, uint128 totalLiquidity) =
+            jitCoordinator.getJITPositionForRemoval(currentSwapId);
+
+        if (!isActive || totalLiquidity == 0) return;
+
+        BalanceDelta removeDelta = _removeJITLiquidity(key, tickLower, tickUpper, totalLiquidity);
+        _takeJITCredits(key, removeDelta);
+
+        (address[] memory autoHedgeLPs, uint256[] memory amounts0, uint256[] memory amounts1) =
+            jitCoordinator.removeJITLiquidityWithAutoHedge(key, currentSwapId, swapDelta, currentAppliedFee);
+
+        for (uint256 i = 0; i < autoHedgeLPs.length; i++) {
+            if (amounts0[i] > 0 || amounts1[i] > 0) {
+                _transferAutoHedgeProfits(key, autoHedgeLPs[i], amounts0[i], amounts1[i]);
+            }
+        }
+
+        (uint256 fees0, uint256 fees1) = jitCoordinator.getJITFees(currentSwapId);
+        emit ActualFeesCollected(key.toId(), currentSwapId, fees0, fees1);
+    }
+
+    function _transferAutoHedgeProfits(PoolKey calldata key, address lp, uint256 amount0, uint256 amount1) private {
+        if (amount0 > 0) {
+            key.currency0.settle(poolManager, address(this), amount0, true);
+            key.currency0.take(poolManager, lp, amount0, false);
+        }
+        if (amount1 > 0) {
+            key.currency1.settle(poolManager, address(this), amount1, true);
+            key.currency1.take(poolManager, lp, amount1, false);
+        }
+    }
+
+    function _removeJITLiquidity(PoolKey calldata key, int24 tickLower, int24 tickUpper, uint128 totalLiquidity)
+        private
+        returns (BalanceDelta)
+    {
+        ModifyLiquidityParams memory removeParams = ModifyLiquidityParams({
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidityDelta: -int256(uint256(totalLiquidity)),
+            salt: bytes32(currentSwapId)
+        });
+
+        (BalanceDelta removeDelta,) = poolManager.modifyLiquidity(key, removeParams, "");
+        return removeDelta;
+    }
+
+    function _takeJITCredits(PoolKey calldata key, BalanceDelta delta) private {
+        if (delta.amount0() > 0) {
+            key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), true);
+        }
+        if (delta.amount1() > 0) {
+            key.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), true);
+        }
+    }
+
     function _handleAddLiquidity(bytes calldata data) private returns (bytes memory) {
         AddLiquidityCallbackData memory cb = abi.decode(data, (AddLiquidityCallbackData));
 
-        // Transfer tokens from sender
         _transferTokensFromSender(cb);
 
         uint128 liquidity;
 
         if (cb.isJITEnabled) {
-            // JIT: settle and mint claims
             _setupJITPosition(cb);
         } else {
-            // Passive: add to pool
             liquidity = _setupPassivePosition(cb);
         }
 
-        // Register position
         (uint256 tokenId, uint128 calculatedLiquidity) = positionManager.addLiquidity(
             cb.poolKey, cb.tickLower, cb.tickUpper, uint128(cb.amount0), uint128(cb.amount1), cb.sender, cb.isJITEnabled
         );
 
-        // Update config manager
         configManager.updateDepositedAmounts(cb.poolKey, cb.sender, cb.amount0, cb.amount1);
 
         return abi.encode(tokenId, calculatedLiquidity);
     }
 
-    /**
-     * @notice Transfer tokens from sender to hook
-     */
     function _transferTokensFromSender(AddLiquidityCallbackData memory cb) private {
         IERC20(Currency.unwrap(cb.poolKey.currency0)).transferFrom(cb.sender, address(this), cb.amount0);
         IERC20(Currency.unwrap(cb.poolKey.currency1)).transferFrom(cb.sender, address(this), cb.amount1);
@@ -502,9 +429,6 @@ contract ZKJITLiquidityHook is BaseHook {
         IERC20(Currency.unwrap(cb.poolKey.currency1)).approve(address(poolManager), cb.amount1);
     }
 
-    /**
-     * @notice Setup JIT position (settle and mint claims)
-     */
     function _setupJITPosition(AddLiquidityCallbackData memory cb) private {
         cb.poolKey.currency0.settle(poolManager, address(this), cb.amount0, false);
         cb.poolKey.currency1.settle(poolManager, address(this), cb.amount1, false);
@@ -513,9 +437,6 @@ contract ZKJITLiquidityHook is BaseHook {
         cb.poolKey.currency1.take(poolManager, address(this), cb.amount1, true);
     }
 
-    /**
-     * @notice Setup passive position (add to pool)
-     */
     function _setupPassivePosition(AddLiquidityCallbackData memory cb) private returns (uint128) {
         (uint128 liquidity,,) =
             positionManager.calculateLiquidityForAmounts(cb.poolKey, cb.tickLower, cb.tickUpper, cb.amount0, cb.amount1);
@@ -529,7 +450,6 @@ contract ZKJITLiquidityHook is BaseHook {
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(cb.poolKey, params, "");
 
-        // Settle debts
         if (delta.amount0() < 0) {
             cb.poolKey.currency0.settle(poolManager, address(this), uint256(uint128(-delta.amount0())), false);
         }
@@ -540,9 +460,6 @@ contract ZKJITLiquidityHook is BaseHook {
         return liquidity;
     }
 
-    /**
-     * @notice Handle remove liquidity callback
-     */
     function _handleRemoveLiquidity(bytes calldata data) private returns (bytes memory) {
         RemoveLiquidityCallbackData memory cb = abi.decode(data, (RemoveLiquidityCallbackData));
 
@@ -561,9 +478,6 @@ contract ZKJITLiquidityHook is BaseHook {
         return abi.encode(amount0, amount1);
     }
 
-    /**
-     * @notice Withdraw JIT position
-     */
     function _withdrawJITPosition(RemoveLiquidityCallbackData memory cb, ILPPositionManager.LPPosition memory)
         private
         returns (uint256, uint256)
@@ -583,9 +497,6 @@ contract ZKJITLiquidityHook is BaseHook {
         return (amt0, amt1);
     }
 
-    /**
-     * @notice Withdraw passive position
-     */
     function _withdrawPassivePosition(
         RemoveLiquidityCallbackData memory cb,
         ILPPositionManager.LPPosition memory position
