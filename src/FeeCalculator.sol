@@ -9,8 +9,8 @@ import {FullMath} from "v4-core/libraries/FullMath.sol";
 
 /**
  * @title FeeCalculator
- * @notice Calculates actual fees earned by LPs from swaps
- * @dev Uses liquidity proportions and swap deltas to determine fee distribution
+ * @notice Calculates and tracks swap fees earned by liquidity providers
+ * @dev Uses fee growth tracking similar to Uniswap V3 for accurate fee distribution
  */
 contract FeeCalculator {
     using PoolIdLibrary for PoolKey;
@@ -21,7 +21,6 @@ contract FeeCalculator {
 
     mapping(PoolId => uint256) public feeGrowthGlobal0X128;
     mapping(PoolId => uint256) public feeGrowthGlobal1X128;
-
     mapping(bytes32 => uint256) public positionFeeGrowthInside0LastX128;
     mapping(bytes32 => uint256) public positionFeeGrowthInside1LastX128;
 
@@ -42,7 +41,13 @@ contract FeeCalculator {
     // ============ External Functions ============
 
     /**
-     * @notice Calculate fees from swap delta
+     * @notice Calculate fees from swap delta and update global fee growth
+     * @param key Pool key
+     * @param delta Balance delta from swap
+     * @param feeTier Fee tier in basis points
+     * @param totalLiquidity Total liquidity in the pool
+     * @return fees0 Fees collected in token0
+     * @return fees1 Fees collected in token1
      */
     function calculateSwapFees(PoolKey calldata key, BalanceDelta delta, uint24 feeTier, uint128 totalLiquidity)
         external
@@ -51,7 +56,6 @@ contract FeeCalculator {
         if (totalLiquidity == 0) return (0, 0);
 
         PoolId poolId = key.toId();
-
         int128 amount0Delta = delta.amount0();
         int128 amount1Delta = delta.amount1();
 
@@ -74,12 +78,17 @@ contract FeeCalculator {
         }
 
         emit FeesCalculated(poolId, fees0, fees1, feeGrowthGlobal0X128[poolId], feeGrowthGlobal1X128[poolId]);
-
         return (fees0, fees1);
     }
 
     /**
      * @notice Calculate fees owed to a specific position
+     * @param key Pool key
+     * @param lp LP address
+     * @param tokenId Position token ID
+     * @param liquidity Position liquidity
+     * @return tokensOwed0 Tokens owed in token0
+     * @return tokensOwed1 Tokens owed in token1
      */
     function calculatePositionFees(PoolKey calldata key, address lp, uint256 tokenId, uint128 liquidity)
         external
@@ -104,7 +113,10 @@ contract FeeCalculator {
     }
 
     /**
-     * @notice Update position fee tracking after collection
+     * @notice Update position fee checkpoint after collection
+     * @param key Pool key
+     * @param lp LP address
+     * @param tokenId Position token ID
      */
     function updatePositionFeeCheckpoint(PoolKey calldata key, address lp, uint256 tokenId) external {
         PoolId poolId = key.toId();
@@ -117,7 +129,13 @@ contract FeeCalculator {
     }
 
     /**
-     * @notice Calculate JIT liquidity fees based on participation
+     * @notice Calculate proportional JIT fee share for an LP
+     * @param totalFees0 Total fees in token0
+     * @param totalFees1 Total fees in token1
+     * @param lpLiquidity LP's liquidity contribution
+     * @param totalLiquidity Total liquidity in JIT position
+     * @return lpFees0 LP's share of fees in token0
+     * @return lpFees1 LP's share of fees in token1
      */
     function calculateJITFeeShare(uint256 totalFees0, uint256 totalFees1, uint128 lpLiquidity, uint128 totalLiquidity)
         external
