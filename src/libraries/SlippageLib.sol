@@ -5,16 +5,23 @@ import {FullMath} from "v4-core/libraries/FullMath.sol";
 
 /**
  * @title SlippageLib
- * @notice Pure library for slippage calculations
- * @dev Can be used in tests, contracts, and even off-chain (via eth_call)
+ * @notice Pure library for slippage calculations in AMM swaps
+ * @dev Can be used in contracts, tests, and off-chain via eth_call. All calculations use basis points (1 bp = 0.01%)
  */
 library SlippageLib {
+    // ============ Constants ============
+
+    uint256 private constant BPS_DIVISOR = 10000;
+    uint256 private constant PRICE_SCALE = 1e18;
+
+    // ============ Output Calculations ============
+
     /**
-     * @notice Calculate expected output for exact input
+     * @notice Calculate expected output for exact input swap
      * @param amountIn Input amount
      * @param priceRatio Current price ratio (scaled by 1e18)
-     * @param zeroForOne Direction of swap
-     * @return expectedOut Expected output amount
+     * @param zeroForOne Direction of swap (true = token0->token1)
+     * @return expectedOut Expected output amount before slippage
      */
     function calculateExpectedOutput(uint256 amountIn, uint256 priceRatio, bool zeroForOne)
         internal
@@ -22,11 +29,9 @@ library SlippageLib {
         returns (uint256 expectedOut)
     {
         if (zeroForOne) {
-            // Selling token0 for token1: output = input * price
-            expectedOut = FullMath.mulDiv(amountIn, priceRatio, 1e18);
+            expectedOut = FullMath.mulDiv(amountIn, priceRatio, PRICE_SCALE);
         } else {
-            // Selling token1 for token0: output = input / price
-            expectedOut = FullMath.mulDiv(amountIn, 1e18, priceRatio);
+            expectedOut = FullMath.mulDiv(amountIn, PRICE_SCALE, priceRatio);
         }
 
         return expectedOut;
@@ -39,13 +44,12 @@ library SlippageLib {
      * @return minOut Minimum acceptable output
      */
     function applySlippageToOutput(uint256 expectedOut, uint256 slippageBps) internal pure returns (uint256 minOut) {
-        // minOut = expectedOut * (10000 - slippageBps) / 10000
-        minOut = FullMath.mulDiv(expectedOut, 10000 - slippageBps, 10000);
+        minOut = FullMath.mulDiv(expectedOut, BPS_DIVISOR - slippageBps, BPS_DIVISOR);
         return minOut;
     }
 
     /**
-     * @notice Calculate minimum output (convenience function)
+     * @notice Calculate minimum output in one step (convenience function)
      * @param amountIn Input amount
      * @param priceRatio Current price ratio (scaled by 1e18)
      * @param zeroForOne Direction of swap
@@ -62,12 +66,14 @@ library SlippageLib {
         return minOut;
     }
 
+    // ============ Input Calculations ============
+
     /**
-     * @notice Calculate expected input for exact output
-     * @param amountOut Output amount
+     * @notice Calculate expected input for exact output swap
+     * @param amountOut Output amount desired
      * @param priceRatio Current price ratio (scaled by 1e18)
-     * @param zeroForOne Direction of swap
-     * @return expectedIn Expected input amount
+     * @param zeroForOne Direction of swap (true = token0->token1)
+     * @return expectedIn Expected input amount before slippage
      */
     function calculateExpectedInput(uint256 amountOut, uint256 priceRatio, bool zeroForOne)
         internal
@@ -75,11 +81,9 @@ library SlippageLib {
         returns (uint256 expectedIn)
     {
         if (zeroForOne) {
-            // Buying token1 with token0: input = output / price
-            expectedIn = FullMath.mulDiv(amountOut, 1e18, priceRatio);
+            expectedIn = FullMath.mulDiv(amountOut, PRICE_SCALE, priceRatio);
         } else {
-            // Buying token0 with token1: input = output * price
-            expectedIn = FullMath.mulDiv(amountOut, priceRatio, 1e18);
+            expectedIn = FullMath.mulDiv(amountOut, priceRatio, PRICE_SCALE);
         }
 
         return expectedIn;
@@ -92,14 +96,13 @@ library SlippageLib {
      * @return maxIn Maximum acceptable input
      */
     function applySlippageToInput(uint256 expectedIn, uint256 slippageBps) internal pure returns (uint256 maxIn) {
-        // maxIn = expectedIn * (10000 + slippageBps) / 10000
-        maxIn = FullMath.mulDiv(expectedIn, 10000 + slippageBps, 10000);
+        maxIn = FullMath.mulDiv(expectedIn, BPS_DIVISOR + slippageBps, BPS_DIVISOR);
         return maxIn;
     }
 
     /**
-     * @notice Calculate maximum input (convenience function)
-     * @param amountOut Output amount
+     * @notice Calculate maximum input in one step (convenience function)
+     * @param amountOut Output amount desired
      * @param priceRatio Current price ratio (scaled by 1e18)
      * @param zeroForOne Direction of swap
      * @param slippageBps Slippage tolerance in basis points
@@ -115,8 +118,10 @@ library SlippageLib {
         return maxIn;
     }
 
+    // ============ Utility Functions ============
+
     /**
-     * @notice Calculate actual slippage that occurred
+     * @notice Calculate actual slippage that occurred in a swap
      * @param expected Expected amount
      * @param actual Actual amount received
      * @return slippageBps Actual slippage in basis points
@@ -125,7 +130,7 @@ library SlippageLib {
         if (actual >= expected) return 0;
 
         uint256 slippageAmount = expected - actual;
-        slippageBps = FullMath.mulDiv(slippageAmount, 10000, expected);
+        slippageBps = FullMath.mulDiv(slippageAmount, BPS_DIVISOR, expected);
 
         return slippageBps;
     }
