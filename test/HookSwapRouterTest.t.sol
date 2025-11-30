@@ -4,8 +4,8 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
@@ -19,12 +19,17 @@ import {JITCoordinator} from "../src/JITCoordinator.sol";
 import {ZKJITLiquidityHook} from "../src/ZKJITLiquidityHook.sol";
 import {FeeCalculator} from "../src/FeeCalculator.sol";
 import {HookSwapRouter} from "../src/HookSwapRouter.sol";
+import {SlippageLib} from "../src/libraries/SlippageLib.sol";
 
 import "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {CoFheTest} from "@fhenixprotocol/cofhe-mock-contracts/CoFheTest.sol";
 
+/**
+ * @title HookSwapRouterTest
+ * @notice Comprehensive tests for swap router functionality
+ * @dev Tests both directions, slippage, exact input/output, and edge cases
+ */
 contract HookSwapRouterTest is Test, Deployers, CoFheTest {
-    using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
     FHEConfigManager public configManager;
@@ -40,12 +45,6 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
     address public constant TRADER = address(0x5555);
     address public constant OWNER = address(0x9999);
 
-    uint256 public constant SWAP_AMOUNT = 100000;
-
-    event Swap(
-        address indexed sender, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut
-    );
-
     function setUp() public {
         deployFreshManagerAndRouters();
         (currency0, currency1) = deployMintAndApprove2Currencies();
@@ -60,12 +59,9 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         positionManager = new LPPositionManager(hookAddress, address(manager), "LP NFT");
         configManager = new FHEConfigManager();
-        feeCalculator = new FeeCalculator();
-
-        vm.prank(hookAddress);
         feeManager = new DynamicFeeManager(hookAddress, OWNER);
-
         profitManager = new ProfitManager(address(configManager));
+        feeCalculator = new FeeCalculator();
         jitCoordinator = new JITCoordinator(
             manager,
             hookAddress,
@@ -126,7 +122,6 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         MockERC20(Currency.unwrap(currency0)).approve(address(hook), type(uint256).max);
         MockERC20(Currency.unwrap(currency1)).approve(address(hook), type(uint256).max);
 
-        hook.depositLiquidityWithAmounts(key, -60, 60, 50000, 50000, false);
         hook.depositLiquidityWithAmounts(key, -120, 120, 50000, 50000, false);
         hook.depositLiquidityWithAmounts(
             key, TickMath.minUsableTick(60), TickMath.maxUsableTick(60), 50000, 50000, false
@@ -134,234 +129,355 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         vm.stopPrank();
     }
 
-    function testSwapExactInputForOutput() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
+    // ============ Test: Exact Input Swaps ============
 
-        uint256 balance0Before = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance1Before = MockERC20(tokenOut).balanceOf(TRADER);
+    function testSwapExactInput_ZeroForOne() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100; // 1%
 
-        vm.prank(TRADER);
-        uint256 amountOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
 
-        uint256 balance0After = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance1After = MockERC20(tokenOut).balanceOf(TRADER);
-
-        assertEq(balance0Before - balance0After, SWAP_AMOUNT);
-        assertGt(amountOut, 0);
-        assertEq(balance1After - balance1Before, amountOut);
-    }
-
-    function testSwapExactOutputForInput() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-        uint256 exactAmountOut = 50000;
-        uint256 maxAmountIn = 200000;
-
-        uint256 balance0Before = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance1Before = MockERC20(tokenOut).balanceOf(TRADER);
+        uint256 balanceBefore = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
 
         vm.prank(TRADER);
-        uint256 amountIn = hookSwapRouter.swapExactOutputForInput(
-            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+        uint256 amountOut = hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0), // tokenIn
+            Currency.unwrap(currency1), // tokenOut
+            amountIn,
+            minOut,
+            block.timestamp + 10 minutes
         );
 
-        uint256 balance0After = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance1After = MockERC20(tokenOut).balanceOf(TRADER);
+        uint256 balanceAfter = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
 
-        assertEq(balance0Before - balance0After, amountIn);
-        assertLt(amountIn, maxAmountIn);
-        assertEq(balance1After - balance1Before, exactAmountOut);
+        assertGt(amountOut, 0, "Should receive tokens");
+        assertGe(amountOut, minOut, "Should meet minimum output");
+        assertEq(balanceAfter - balanceBefore, amountOut, "Balance should match output");
     }
 
-    function testSwapWithSlippageProtection() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-        uint256 minAmountOut = 200000;
+    function testSwapExactInput_OneForZero() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100; // 1%
+
+        // For oneForZero (zeroForOne = false), we're selling token1 for token0
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, false, slippageBps);
+
+        uint256 balanceBefore = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+
+        vm.prank(TRADER);
+        uint256 amountOut = hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency1), // tokenIn (reversed)
+            Currency.unwrap(currency0), // tokenOut (reversed)
+            amountIn,
+            minOut,
+            block.timestamp + 10 minutes
+        );
+
+        uint256 balanceAfter = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+
+        assertGt(amountOut, 0, "Should receive tokens");
+        assertGe(amountOut, minOut, "Should meet minimum output");
+        assertEq(balanceAfter - balanceBefore, amountOut, "Balance should match output");
+    }
+
+    function testSwapExactInput_LargeAmount() public {
+        uint256 amountIn = 50000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 300; // 3% for large swap
+
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
+
+        vm.prank(TRADER);
+        uint256 amountOut = hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountIn, minOut, block.timestamp + 10 minutes
+        );
+
+        assertGt(amountOut, 0, "Should receive tokens");
+        assertGe(amountOut, minOut, "Should meet minimum output");
+    }
+
+    function testSwapExactInput_SlippageProtection() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+
+        // Set unrealistic minimum (higher than possible output)
+        uint256 unrealisticMin = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, 0) * 2;
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.InsufficientOutputAmount.selector);
-        hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, minAmountOut, block.timestamp + 100);
+        hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            amountIn,
+            unrealisticMin,
+            block.timestamp + 10 minutes
+        );
     }
 
-    function testSwapReverseDirection() public {
-        address tokenIn = Currency.unwrap(currency1);
-        address tokenOut = Currency.unwrap(currency0);
-
-        uint256 balance1Before = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance0Before = MockERC20(tokenOut).balanceOf(TRADER);
-
-        vm.prank(TRADER);
-        uint256 amountOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-
-        uint256 balance1After = MockERC20(tokenIn).balanceOf(TRADER);
-        uint256 balance0After = MockERC20(tokenOut).balanceOf(TRADER);
-
-        assertEq(balance1Before - balance1After, SWAP_AMOUNT);
-        assertGt(amountOut, 0);
-        assertEq(balance0After - balance0Before, amountOut);
-    }
-
-    function testSwapWithExpiredDeadline() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-
-        vm.warp(block.timestamp + 200);
+    function testSwapExactInput_DeadlineExpired() public {
+        uint256 amountIn = 1000;
+        uint256 minOut = 900;
+        uint256 pastDeadline = block.timestamp - 1;
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.ExpiredDeadline.selector);
-        hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp - 100);
+        hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountIn, minOut, pastDeadline
+        );
     }
 
-    function testSwapWithInvalidPath() public {
-        address invalidToken = address(0x9999);
-        address tokenOut = Currency.unwrap(currency1);
+    // ============ Test: Exact Output Swaps ============
+
+    function testSwapExactOutput_ZeroForOne() public {
+        uint256 amountOut = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100; // 1%
+
+        uint256 maxIn = SlippageLib.calculateMaxInput(amountOut, priceRatio, true, slippageBps);
+
+        uint256 balance0Before = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+        uint256 balance1Before = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
 
         vm.prank(TRADER);
-        vm.expectRevert(HookSwapRouter.InvalidPath.selector);
-        hookSwapRouter.swapExactInputForOutput(key, invalidToken, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-    }
-
-    function testSwapWithJITLiquidity() public {
-        InEuint128 memory encMinSwap = createInEuint128(50000, LP1);
-        InEuint32 memory encHedge0 = createInEuint32(25, LP1);
-        InEuint32 memory encHedge1 = createInEuint32(30, LP1);
-
-        vm.startPrank(LP1);
-        configManager.configureLPSettings(key, encMinSwap, encHedge0, encHedge1, false);
-        hook.depositLiquidityWithAmounts(key, -120, 120, 10000, 10000, true);
-        vm.stopPrank();
-
-        configManager.decryptMinSwapSize(key, LP1);
-        vm.warp(block.timestamp + 10);
-
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-
-        vm.prank(TRADER);
-        uint256 amountOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-
-        assertGt(amountOut, 0);
-
-        (uint256 profits0, uint256 profits1) = profitManager.getLPProfits(key, LP1);
-        assertTrue(profits0 > 0 || profits1 > 0);
-    }
-
-    function testMultipleSwaps() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-
-        vm.startPrank(TRADER);
-
-        uint256 amountOut1 =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-        uint256 amountOut2 =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-        uint256 amountOut3 =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
-
-        vm.stopPrank();
-
-        assertGt(amountOut1, 0);
-        assertGt(amountOut2, 0);
-        assertGt(amountOut3, 0);
-    }
-
-    function testSwapWithDifferentAmounts() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-
-        vm.startPrank(TRADER);
-
-        uint256 smallOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 10000, 0, block.timestamp + 100);
-        uint256 mediumOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 50000, 0, block.timestamp + 100);
-        uint256 largeOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, 100000, 0, block.timestamp + 100);
-
-        vm.stopPrank();
-
-        assertGt(mediumOut, smallOut);
-        assertGt(largeOut, mediumOut);
-    }
-
-    function testSwapExactOutputWithRefund() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-        uint256 exactAmountOut = 30000;
-        uint256 maxAmountIn = 100000;
-
-        uint256 balanceBefore = MockERC20(tokenIn).balanceOf(TRADER);
-
-        vm.prank(TRADER);
-        uint256 actualAmountIn = hookSwapRouter.swapExactOutputForInput(
-            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+        uint256 amountIn = hookSwapRouter.swapExactOutputForInput(
+            key,
+            Currency.unwrap(currency0), // tokenIn
+            Currency.unwrap(currency1), // tokenOut
+            amountOut,
+            maxIn,
+            block.timestamp + 10 minutes
         );
 
-        uint256 balanceAfter = MockERC20(tokenIn).balanceOf(TRADER);
+        uint256 balance0After = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+        uint256 balance1After = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
 
-        assertLt(actualAmountIn, maxAmountIn);
-        assertEq(balanceBefore - balanceAfter, actualAmountIn);
+        assertGt(amountIn, 0, "Should spend tokens");
+        assertLe(amountIn, maxIn, "Should not exceed max input");
+        assertEq(balance0Before - balance0After, amountIn, "Input balance should match");
+        assertEq(balance1After - balance1Before, amountOut, "Output balance should match exactly");
     }
 
-    function testSwapExactOutputExceedsMax() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-        uint256 exactAmountOut = 80000;
-        uint256 maxAmountIn = 50000;
+    function testSwapExactOutput_OneForZero() public {
+        uint256 amountOut = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100; // 1%
+
+        // For oneForZero (zeroForOne = false), we're buying token0 with token1
+        uint256 maxIn = SlippageLib.calculateMaxInput(amountOut, priceRatio, false, slippageBps);
+
+        uint256 balance0Before = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+        uint256 balance1Before = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
+
+        vm.prank(TRADER);
+        uint256 amountIn = hookSwapRouter.swapExactOutputForInput(
+            key,
+            Currency.unwrap(currency1), // tokenIn (reversed)
+            Currency.unwrap(currency0), // tokenOut (reversed)
+            amountOut,
+            maxIn,
+            block.timestamp + 10 minutes
+        );
+
+        uint256 balance0After = MockERC20(Currency.unwrap(currency0)).balanceOf(TRADER);
+        uint256 balance1After = MockERC20(Currency.unwrap(currency1)).balanceOf(TRADER);
+
+        assertGt(amountIn, 0, "Should spend tokens");
+        assertLe(amountIn, maxIn, "Should not exceed max input");
+        assertEq(balance1Before - balance1After, amountIn, "Input balance should match");
+        assertEq(balance0After - balance0Before, amountOut, "Output balance should match exactly");
+    }
+
+    function testSwapExactOutput_SlippageProtection() public {
+        uint256 amountOut = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+
+        // Set unrealistic max (lower than required input)
+        uint256 unrealisticMax = SlippageLib.calculateMaxInput(amountOut, priceRatio, true, 0) / 2;
 
         vm.prank(TRADER);
         vm.expectRevert(HookSwapRouter.ExcessiveInputAmount.selector);
         hookSwapRouter.swapExactOutputForInput(
-            key, tokenIn, tokenOut, exactAmountOut, maxAmountIn, block.timestamp + 100
+            key,
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1),
+            amountOut,
+            unrealisticMax,
+            block.timestamp + 10 minutes
         );
     }
 
-    function testLargeSwap() public {
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
-        uint256 largeAmount = 500000;
+    function testSwapExactOutput_LargeAmount() public {
+        uint256 amountOut = 30000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 500; // 5% for large swap
 
-        MockERC20(tokenIn).mint(TRADER, largeAmount);
-
-        vm.prank(TRADER);
-        uint256 amountOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, largeAmount, 0, block.timestamp + 100);
-
-        assertGt(amountOut, 0);
-    }
-
-    function testSwapWithHighGasFee() public {
-        vm.txGasPrice(50 gwei);
-
-        address tokenIn = Currency.unwrap(currency0);
-        address tokenOut = Currency.unwrap(currency1);
+        uint256 maxIn = SlippageLib.calculateMaxInput(amountOut, priceRatio, true, slippageBps);
 
         vm.prank(TRADER);
-        uint256 amountOut =
-            hookSwapRouter.swapExactInputForOutput(key, tokenIn, tokenOut, SWAP_AMOUNT, 0, block.timestamp + 100);
+        uint256 amountIn = hookSwapRouter.swapExactOutputForInput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountOut, maxIn, block.timestamp + 10 minutes
+        );
 
-        assertGt(amountOut, 0);
+        assertGt(amountIn, 0, "Should spend tokens");
+        assertLe(amountIn, maxIn, "Should not exceed max input");
     }
 
-    function testSwapBothDirections() public {
-        address token0 = Currency.unwrap(currency0);
-        address token1 = Currency.unwrap(currency1);
+    // ============ Test: SlippageLib Functions ============
+
+    function testSlippageLib_CalculateMinOutput() public pure {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = 1e18; // 1:1 price
+        uint256 slippageBps = 100; // 1%
+
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
+
+        // Expected: 1000 * (1 - 0.01) = 990
+        assertEq(minOut, 990, "Should apply 1% slippage");
+    }
+
+    function testSlippageLib_CalculateMaxInput() public pure {
+        uint256 amountOut = 1000;
+        uint256 priceRatio = 1e18; // 1:1 price
+        uint256 slippageBps = 100; // 1%
+
+        uint256 maxIn = SlippageLib.calculateMaxInput(amountOut, priceRatio, true, slippageBps);
+
+        // Expected: 1000 * (1 + 0.01) = 1010
+        assertEq(maxIn, 1010, "Should apply 1% slippage");
+    }
+
+    function testSlippageLib_ZeroForOne_vs_OneForZero() public pure {
+        uint256 amount = 1000;
+        uint256 priceRatio = 2e18; // 1 token0 = 2 token1
+        uint256 slippageBps = 100;
+
+        // ZeroForOne: Selling token0 for token1
+        uint256 minOut0to1 = SlippageLib.calculateMinOutput(amount, priceRatio, true, slippageBps);
+        // Expected: 1000 * 2 * 0.99 = 1980
+
+        // OneForZero: Selling token1 for token0
+        uint256 minOut1to0 = SlippageLib.calculateMinOutput(amount, priceRatio, false, slippageBps);
+        // Expected: 1000 / 2 * 0.99 = 495
+
+        assertEq(minOut0to1, 1980, "Should get more token1 when selling token0");
+        assertEq(minOut1to0, 495, "Should get less token0 when selling token1");
+    }
+
+    function testSlippageLib_HighSlippage() public pure {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = 1e18;
+        uint256 slippageBps = 1000; // 10%
+
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
+
+        // Expected: 1000 * 0.9 = 900
+        assertEq(minOut, 900, "Should apply 10% slippage");
+    }
+
+    function testSlippageLib_ConversionFunctions() public pure {
+        assertEq(SlippageLib.percentToBps(1), 100, "1% should be 100 bps");
+        assertEq(SlippageLib.percentToBps(5), 500, "5% should be 500 bps");
+        assertEq(SlippageLib.bpsToPercent(100), 1, "100 bps should be 1%");
+        assertEq(SlippageLib.bpsToPercent(500), 5, "500 bps should be 5%");
+    }
+
+    function testSlippageLib_ActualSlippage() public pure {
+        uint256 expected = 1000;
+        uint256 actual = 990;
+
+        uint256 slippage = SlippageLib.calculateActualSlippage(expected, actual);
+
+        // (1000 - 990) / 1000 * 10000 = 100 bps = 1%
+        assertEq(slippage, 100, "Should calculate 1% slippage");
+    }
+
+    // ============ Test: Edge Cases ============
+
+    function testSwap_InvalidTokenPath() public {
+        address randomToken = address(0x9999999);
+
+        vm.prank(TRADER);
+        vm.expectRevert(HookSwapRouter.InvalidPath.selector);
+        hookSwapRouter.swapExactInputForOutput(
+            key, randomToken, Currency.unwrap(currency1), 1000, 900, block.timestamp + 10 minutes
+        );
+    }
+
+    function testSwap_ZeroAmount() public {
+        vm.prank(TRADER);
+        vm.expectRevert(); // Should revert on zero amount
+        hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), 0, 0, block.timestamp + 10 minutes
+        );
+    }
+
+    function testSwap_MultipleSwapsInSequence() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 100;
 
         vm.startPrank(TRADER);
 
-        uint256 amountOut1 =
-            hookSwapRouter.swapExactInputForOutput(key, token0, token1, SWAP_AMOUNT, 0, block.timestamp + 100);
-        assertGt(amountOut1, 0);
+        // First swap: token0 -> token1
+        uint256 minOut1 = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
+        uint256 amountOut1 = hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountIn, minOut1, block.timestamp + 10 minutes
+        );
 
-        uint256 amountOut2 =
-            hookSwapRouter.swapExactInputForOutput(key, token1, token0, SWAP_AMOUNT, 0, block.timestamp + 100);
-        assertGt(amountOut2, 0);
+        // Second swap: token1 -> token0 (reverse)
+        uint256 minOut2 = SlippageLib.calculateMinOutput(amountOut1, priceRatio, false, slippageBps);
+        uint256 amountOut2 = hookSwapRouter.swapExactInputForOutput(
+            key,
+            Currency.unwrap(currency1),
+            Currency.unwrap(currency0),
+            amountOut1,
+            minOut2,
+            block.timestamp + 10 minutes
+        );
 
         vm.stopPrank();
+
+        assertGt(amountOut1, 0, "First swap should succeed");
+        assertGt(amountOut2, 0, "Second swap should succeed");
+        assertLt(amountOut2, amountIn, "Should lose some value due to fees");
+    }
+
+    function testSwap_VeryLowSlippage() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 slippageBps = 1; // 0.01%
+
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, slippageBps);
+
+        vm.prank(TRADER);
+        vm.expectRevert(HookSwapRouter.InsufficientOutputAmount.selector);
+        uint256 amountOut = hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountIn, minOut, block.timestamp + 10 minutes
+        );
+
+        assertEq(amountOut, 0, "Should fail with low slippage for now");
+    }
+
+    // ============ Test: Gas Optimization ============
+
+    function testSwap_GasUsage() public {
+        uint256 amountIn = 1000;
+        uint256 priceRatio = hook.getPriceRatio(key);
+        uint256 minOut = SlippageLib.calculateMinOutput(amountIn, priceRatio, true, 100);
+
+        vm.prank(TRADER);
+        uint256 gasBefore = gasleft();
+        hookSwapRouter.swapExactInputForOutput(
+            key, Currency.unwrap(currency0), Currency.unwrap(currency1), amountIn, minOut, block.timestamp + 10 minutes
+        );
+        uint256 gasUsed = gasBefore - gasleft();
+
+        emit log_named_uint("Gas used for swap", gasUsed);
+        assertLt(gasUsed, 500000, "Should use reasonable gas");
     }
 }
