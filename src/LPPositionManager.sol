@@ -66,6 +66,7 @@ contract LPPositionManager is ERC1155 {
     event LiquidityRemoved(
         address indexed lp, PoolId indexed poolId, uint256 tokenId, uint128 liquidity, uint128 amount0, uint128 amount1
     );
+    event HookUpdated(address indexed newHook);
 
     // ============ Errors ============
 
@@ -91,6 +92,17 @@ contract LPPositionManager is ERC1155 {
     }
 
     // ============ External Functions ============
+
+    /**
+     * @notice Update hook address (only callable once, during deployment)
+     * @param _hook New hook address
+     */
+    function updateHook(address _hook) external {
+        require(hook == address(0), "Hook already set");
+        require(_hook != address(0), "Invalid hook address");
+        hook = _hook;
+        emit HookUpdated(_hook);
+    }
 
     /**
      * @notice Deposit liquidity and receive ERC1155 LP token

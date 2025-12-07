@@ -28,6 +28,7 @@ contract DynamicFeeManager {
     event FeeParametersUpdated(uint24 baseFee, uint24 highGasFee, uint24 lowGasFee);
     event ThresholdsUpdated(uint256 highGasThreshold, uint256 lowGasThreshold);
     event MovingAverageUpdated(uint128 newAverage, uint104 count);
+    event HookUpdated(address indexed newHook);
 
     // ============ Enums ============
 
@@ -64,6 +65,17 @@ contract DynamicFeeManager {
     }
 
     // ============ External Functions ============
+
+    /**
+     * @notice Update hook address (only callable once, during deployment)
+     * @param _hook New hook address
+     */
+    function updateHook(address _hook) external onlyOwner {
+        require(hook == address(0), "Hook already set");
+        require(_hook != address(0), "Invalid hook address");
+        hook = _hook;
+        emit HookUpdated(_hook);
+    }
 
     /**
      * @notice Calculate dynamic fee based on current gas conditions
