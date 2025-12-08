@@ -23,3 +23,55 @@ Network:                Base Sepolia (Chain ID: 84532)
 Hook: `https://base-sepolia.blockscout.com/address/0x292A9Dd792237a61AAb1BFFCb1CE4EBf94BaE0c8`  
 Position Manager: `https://base-sepolia.blockscout.com/address/0x4237538825520886Fb9bF8Fc07eDD0cFB22B5Ea5`  
 Swap Router: `https://base-sepolia.blockscout.com/address/0xc0A1feCfA8B8dF4Bf4568eb8C0D7271125798939`
+
+
+✅ Pool Initialization - Base Sepolia
+
+═══════════════════════════════════════════════════════════════
+
+**Pool Configuration**
+
+Pool Manager:           0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408
+Hook:                   0x292A9Dd792237a61AAb1BFFCb1CE4EBf94BaE0c8
+
+Token0 (QRT):          0x0034c3506F653E3a1FAC31a5c295351532296D61
+Token1 (FYN):          0xB202EC1CB8d4b85f643cd9b007208aaEe3D1E209
+
+Fee:                    8388608 (Dynamic Fee Flag)
+Tick Spacing:           60
+Initial Price:          1:1 (SQRT_PRICE_1_1)
+
+**Pool Identity**
+
+Pool ID (Decimal):      43537726164844904396573889578934738466300291481041021369939360227901970120124
+Pool ID (Hex):          0x60417ad0c69fad39182919a5ce58879a1aa8ace4d3f648faac01270ac488fdbc
+
+**Transaction Details**
+
+Status:                 ✅ Success
+Transaction Hash:       0xfccbb2fe7d2b881c3b0a9d04072853116da5953458b9b0f75fbaf73df151c6e5
+Block:                  34,697,067
+Gas Used:               55,809 gas
+Gas Price:              0.0012 gwei
+Total Cost:             0.0000000669708 ETH (~$0.0002)
+Network:                Base Sepolia (Chain ID: 84532)
+
+═══════════════════════════════════════════════════════════════
+
+**Next Steps**
+
+1. ✅ Verify Pool Initialization
+   Check on BaseScan that initialize() succeeded
+
+2. 📝 Mint Test Tokens
+   Run: forge script script/MintTestTokens.s.sol --broadcast
+
+3. 💧 Add Liquidity
+   - Add base passive liquidity (full range)
+   - Configure JIT LP strategies with FHE parameters
+   - Add JIT liquidity (concentrated range)
+
+4. 🔄 Test Swaps
+   Use the HookSwapRouter to perform test swaps
+
+═══════════════════════════════════════════════════════════════
