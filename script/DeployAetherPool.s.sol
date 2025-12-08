@@ -143,10 +143,11 @@ contract DeployAetherPool is Script {
 }
 
 // source .env
+
 // forge script script/DeployAetherPool.s.sol:DeployAetherPool \
-// --rpc-url $BASE_SEPOLIA_RPC_URL \
-// --private-key $PRIVATE_KEY \    --broadcast \
-// -vvvv
+//     --rpc-url $BASE_SEPOLIA_RPC_URL \
+//     --private-key $PRIVATE_KEY \    --broadcast \
+//     -vvvv
 
 // # Get hook permissions directly
 // cast call 0x292A9Dd792237a61AAb1BFFCb1CE4EBf94BaE0c8 \
