@@ -109,17 +109,16 @@ contract SimpleMVPTest is Test, Deployers, CoFheTest {
 
         vm.txGasPrice(10 gwei);
 
-        positionManager = new LPPositionManager(hookAddress, address(manager), "LP NFT");
+        positionManager = new LPPositionManager(address(manager), "LP NFT");
         configManager = new FHEConfigManager();
         feeCalculator = new FeeCalculator();
 
         vm.prank(hookAddress);
-        feeManager = new DynamicFeeManager(hookAddress, OWNER);
+        feeManager = new DynamicFeeManager(OWNER);
 
         profitManager = new ProfitManager(address(configManager));
         jitCoordinator = new JITCoordinator(
             manager,
-            hookAddress,
             address(positionManager),
             address(configManager),
             address(profitManager),
@@ -140,6 +139,11 @@ contract SimpleMVPTest is Test, Deployers, CoFheTest {
             hookAddress
         );
         hook = ZKJITLiquidityHook(hookAddress);
+
+        jitCoordinator.updateHook(address(hook));
+        positionManager.updateHook(address(hook));
+        feeManager.updateHook(address(hook));
+
         hookSwapRouter = new HookSwapRouter(manager);
 
         // Initialize pool at 1:1 (50/50) - SQRT_PRICE_1_1

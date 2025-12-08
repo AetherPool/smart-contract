@@ -57,14 +57,13 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
 
         vm.txGasPrice(10 gwei);
 
-        positionManager = new LPPositionManager(hookAddress, address(manager), "LP NFT");
+        positionManager = new LPPositionManager(address(manager), "LP NFT");
         configManager = new FHEConfigManager();
-        feeManager = new DynamicFeeManager(hookAddress, OWNER);
+        feeManager = new DynamicFeeManager(OWNER);
         profitManager = new ProfitManager(address(configManager));
         feeCalculator = new FeeCalculator();
         jitCoordinator = new JITCoordinator(
             manager,
-            hookAddress,
             address(positionManager),
             address(configManager),
             address(profitManager),
@@ -85,6 +84,10 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
             hookAddress
         );
         hook = ZKJITLiquidityHook(hookAddress);
+
+        jitCoordinator.updateHook(address(hook));
+        positionManager.updateHook(address(hook));
+        feeManager.updateHook(address(hook));
 
         hookSwapRouter = new HookSwapRouter(manager);
 

@@ -91,6 +91,7 @@ contract JITCoordinator {
     event JITRemoved(uint256 indexed swapId, PoolId indexed poolId, uint256 totalFees0, uint256 totalFees1);
     event JITFeesDistributed(uint256 indexed swapId, address indexed lp, uint256 fees0, uint256 fees1);
     event InsufficientLiquidity(uint256 indexed swapId, uint128 required, uint128 available);
+    event HookUpdated(address indexed newHook);
 
     // ============ Errors ============
 
@@ -104,14 +105,12 @@ contract JITCoordinator {
 
     constructor(
         IPoolManager _poolManager,
-        address _hook,
         address _positionManager,
         address _configManager,
         address _profitManager,
         address _feeCalculator
     ) {
         poolManager = _poolManager;
-        hook = _hook;
         positionManager = _positionManager;
         configManager = _configManager;
         profitManager = _profitManager;
@@ -119,6 +118,17 @@ contract JITCoordinator {
     }
 
     // ============ External Functions ============
+
+    /**
+     * @notice Update hook address (only callable once, during deployment)
+     * @param _hook New hook address
+     */
+    function updateHook(address _hook) external {
+        require(hook == address(0), "Hook already set");
+        require(_hook != address(0), "Invalid hook address");
+        hook = _hook;
+        emit HookUpdated(_hook);
+    }
 
     /**
      * @notice Evaluate which LPs should participate in JIT operation based on their configurations and liquidity

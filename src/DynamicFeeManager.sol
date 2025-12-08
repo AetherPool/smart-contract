@@ -58,8 +58,7 @@ contract DynamicFeeManager {
 
     // ============ Constructor ============
 
-    constructor(address _hook, address _owner) {
-        hook = _hook;
+    constructor(address _owner) {
         owner = _owner;
         updateMovingAverage();
     }
@@ -70,7 +69,7 @@ contract DynamicFeeManager {
      * @notice Update hook address (only callable once, during deployment)
      * @param _hook New hook address
      */
-    function updateHook(address _hook) external onlyOwner {
+    function updateHook(address _hook) external {
         require(hook == address(0), "Hook already set");
         require(_hook != address(0), "Invalid hook address");
         hook = _hook;

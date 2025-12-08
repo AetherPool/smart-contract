@@ -24,11 +24,10 @@ contract DynamicFeeManagerTest is Test {
 
     function setUp() public {
         vm.txGasPrice(BASE_GAS);
-        feeManager = new DynamicFeeManager(HOOK, OWNER);
+        feeManager = new DynamicFeeManager(OWNER);
     }
 
     function testInitialization() public view {
-        assertEq(feeManager.hook(), HOOK);
         assertEq(feeManager.owner(), OWNER);
         assertEq(feeManager.baseFee(), 3000);
         assertEq(feeManager.highGasFee(), 1500);

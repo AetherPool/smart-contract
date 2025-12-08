@@ -86,8 +86,7 @@ contract LPPositionManager is ERC1155 {
 
     // ============ Constructor ============
 
-    constructor(address _hook, address _poolManager, string memory _uri) ERC1155(_uri) {
-        hook = _hook;
+    constructor(address _poolManager, string memory _uri) ERC1155(_uri) {
         poolManager = IPoolManager(_poolManager);
     }
 

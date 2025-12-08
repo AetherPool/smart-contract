@@ -56,17 +56,16 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
 
         vm.txGasPrice(10 gwei);
 
-        positionManager = new LPPositionManager(hookAddress, address(manager), "LP NFT");
+        positionManager = new LPPositionManager(address(manager), "LP NFT");
         configManager = new FHEConfigManager();
         feeCalculator = new FeeCalculator();
 
         vm.prank(HOOK);
-        feeManager = new DynamicFeeManager(HOOK, OWNER);
+        feeManager = new DynamicFeeManager(OWNER);
 
         profitManager = new ProfitManager(address(configManager));
         jitCoordinator = new JITCoordinator(
             manager,
-            HOOK,
             address(positionManager),
             address(configManager),
             address(profitManager),
@@ -87,6 +86,10 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
             hookAddress
         );
         hook = ZKJITLiquidityHook(hookAddress);
+
+        jitCoordinator.updateHook(address(hook));
+        positionManager.updateHook(address(hook));
+        feeManager.updateHook(address(hook));
 
         (key,) = initPool(currency0, currency1, hook, LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1);
 
