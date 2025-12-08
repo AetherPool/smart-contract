@@ -25,8 +25,7 @@ contract DeployAetherPool is Script {
     // CREATE2 Deployer (same address on all chains)
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
 
-    // Pool Manager - Update this for your target chain
-    IPoolManager constant POOLMANAGER = IPoolManager(address(0x8C4BcBE6b9eF47855f97E675296FA3F6fafa5F1A)); // Base Sepolia
+    IPoolManager constant POOLMANAGER = IPoolManager(address(0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408)); // Base Sepolia
 
     function run() public {
         uint160 flags = uint160(
@@ -52,21 +51,15 @@ contract DeployAetherPool is Script {
         ProfitManager profitManager = new ProfitManager(address(configManager));
         console.log("ProfitManager:", address(profitManager));
 
-        // ===== Step 2: Deploy Updatable Contracts with address(0) =====
-        console.log("\n--- Step 2: Updatable Contracts (placeholder hook) ---");
-
         LPPositionManager positionManager = new LPPositionManager(
             address(POOLMANAGER),
-            "https://metadata.aetherpool.io/lp/{id}.json"
+            "https://aquamarine-famous-penguin-727.mypinata.cloud/ipfs/bafkreifxpa42qjmydsxifmcmtm4a5vmr6z2id7ae4chugoywvk2i6lfn6m"
         );
         console.log("LPPositionManager:", address(positionManager));
 
-        DynamicFeeManager feeManager = new DynamicFeeManager(
-            msg.sender // owner
-        );
+        DynamicFeeManager feeManager = new DynamicFeeManager(msg.sender);
         console.log("DynamicFeeManager:", address(feeManager));
 
-        // JITCoordinator also needs hook address, deploy with placeholder
         JITCoordinator jitCoordinator = new JITCoordinator(
             POOLMANAGER,
             address(positionManager),
@@ -76,8 +69,8 @@ contract DeployAetherPool is Script {
         );
         console.log("JITCoordinator:", address(jitCoordinator));
 
-        // ===== Step 3: Mine for Valid Hook Address =====
-        console.log("\n--- Step 3: Mining for Hook Address ---");
+        // ===== Step 2: Mine for Valid Hook Address =====
+        console.log("\n--- Step 2: Mining for Hook Address ---");
 
         bytes memory constructorArgs = abi.encode(
             POOLMANAGER,
@@ -95,8 +88,8 @@ contract DeployAetherPool is Script {
         console.log("Hook Address Found:", hookAddress);
         console.log("Salt:", uint256(salt));
 
-        // ===== Step 4: Deploy Hook =====
-        console.log("\n--- Step 4: Deploying Hook ---");
+        // ===== Step 3: Deploy Hook =====
+        console.log("\n--- Step 3: Deploying Hook ---");
 
         ZKJITLiquidityHook hook = new ZKJITLiquidityHook{salt: salt}(
             POOLMANAGER,
@@ -111,8 +104,8 @@ contract DeployAetherPool is Script {
         require(address(hook) == hookAddress, "Hook address mismatch");
         console.log("Hook deployed:", address(hook));
 
-        // ===== Step 5: Update Hook Addresses =====
-        console.log("\n--- Step 5: Updating Hook References ---");
+        // ===== Step 4: Update Hook Addresses =====
+        console.log("\n--- Step 4: Updating Hook References ---");
 
         positionManager.updateHook(address(hook));
         console.log("Updated LPPositionManager.hook");
@@ -123,8 +116,8 @@ contract DeployAetherPool is Script {
         jitCoordinator.updateHook(address(hook));
         console.log("Updated JITCoordinator.hook");
 
-        // ===== Step 6: Deploy Token Pair =====
-        console.log("\n--- Step 6: Deploying Tokens ---");
+        // ===== Step 5: Deploy Token Pair =====
+        console.log("\n--- Step 5: Deploying Tokens ---");
 
         Token fyntera = new Token("Fyntera", "FYN");
         console.log("Fyntera (FYN):", address(fyntera));
@@ -139,18 +132,23 @@ contract DeployAetherPool is Script {
         console.log("Token0:", token0);
         console.log("Token1:", token1);
 
-        // ===== Step 7: Deploy Swap Router =====
-        console.log("\n--- Step 7: Deploying Swap Router ---");
+        // ===== Step 6: Deploy Swap Router =====
+        console.log("\n--- Step 6: Deploying Swap Router ---");
 
         HookSwapRouter swapRouter = new HookSwapRouter(POOLMANAGER);
         console.log("HookSwapRouter:", address(swapRouter));
 
         vm.stopBroadcast();
-
-        // source .env
-        // forge script script/DeployAetherPool.s.sol:DeployAetherPool \
-        // --rpc-url $BASE_SEPOLIA_RPC_URL \
-        // --private-key $PRIVATE_KEY \    --broadcast \
-        // -vvvv
     }
 }
+
+// source .env
+// forge script script/DeployAetherPool.s.sol:DeployAetherPool \
+// --rpc-url $BASE_SEPOLIA_RPC_URL \
+// --private-key $PRIVATE_KEY \    --broadcast \
+// -vvvv
+
+// # Get hook permissions directly
+// cast call 0x292A9Dd792237a61AAb1BFFCb1CE4EBf94BaE0c8 \
+//   "getHookPermissions()(bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool)" \
+//   --rpc-url $BASE_SEPOLIA_RPC_URL

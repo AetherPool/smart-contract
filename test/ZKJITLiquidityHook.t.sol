@@ -69,11 +69,7 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
 
         profitManager = new ProfitManager(address(configManager));
         jitCoordinator = new JITCoordinator(
-            manager,
-            address(positionManager),
-            address(configManager),
-            address(profitManager),
-            address(feeCalculator)
+            manager, address(positionManager), address(configManager), address(profitManager), address(feeCalculator)
         );
 
         deployCodeTo(
@@ -90,7 +86,7 @@ contract ZKJITLiquidityHookTest is Test, Deployers, CoFheTest {
             hookAddress
         );
         hook = ZKJITLiquidityHook(hookAddress);
-        
+
         jitCoordinator.updateHook(address(hook));
         positionManager.updateHook(address(hook));
         feeManager.updateHook(address(hook));

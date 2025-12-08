@@ -65,11 +65,7 @@ contract ProfitManagerTest is Test, Deployers, CoFheTest {
 
         profitManager = new ProfitManager(address(configManager));
         jitCoordinator = new JITCoordinator(
-            manager,
-            address(positionManager),
-            address(configManager),
-            address(profitManager),
-            address(feeCalculator)
+            manager, address(positionManager), address(configManager), address(profitManager), address(feeCalculator)
         );
 
         deployCodeTo(

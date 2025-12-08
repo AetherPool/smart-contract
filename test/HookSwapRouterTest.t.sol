@@ -63,11 +63,7 @@ contract HookSwapRouterTest is Test, Deployers, CoFheTest {
         profitManager = new ProfitManager(address(configManager));
         feeCalculator = new FeeCalculator();
         jitCoordinator = new JITCoordinator(
-            manager,
-            address(positionManager),
-            address(configManager),
-            address(profitManager),
-            address(feeCalculator)
+            manager, address(positionManager), address(configManager), address(profitManager), address(feeCalculator)
         );
 
         deployCodeTo(
