@@ -153,3 +153,21 @@ contract DeployAetherPool is Script {
 // cast call 0x292A9Dd792237a61AAb1BFFCb1CE4EBf94BaE0c8 \
 //   "getHookPermissions()(bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool,bool)" \
 //   --rpc-url $BASE_SEPOLIA_RPC_URL
+
+// jq --version
+// brew install jq ===> if not installed
+
+// # Create directory first
+// mkdir -p extractedABIs
+
+// # Extract the ABIs
+// jq '.abi' out/DynamicFeeManager.sol/DynamicFeeManager.json > extractedABIs/DynamicFeeManager.json
+// jq '.abi' out/FeeCalculator.sol/FeeCalculator.json > extractedABIs/FeeCalculator.json
+// jq '.abi' out/FHEConfigManager.sol/FHEConfigManager.json > extractedABIs/FHEConfigManager.json
+// jq '.abi' out/HookSwapRouter.sol/HookSwapRouter.json > extractedABIs/HookSwapRouter.json
+// jq '.abi' out/JITCoordinator.sol/JITCoordinator.json > extractedABIs/JITCoordinator.json
+// jq '.abi' out/LPPositionManager.sol/LPPositionManager.json > extractedABIs/LPPositionManager.json
+// jq '.abi' out/ProfitManager.sol/ProfitManager.json > extractedABIs/ProfitManager.json
+// jq '.abi' out/Token.sol/Token.json > extractedABIs/Token.json
+// jq '.abi' out/ZKJITLiquidityHook.sol/ZKJITLiquidityHook.json > extractedABIs/ZKJITLiquidityHook.json
+// jq '.abi' out/SlippageLib.sol/SlippageLib.json > extractedABIs/SlippageLib.json
