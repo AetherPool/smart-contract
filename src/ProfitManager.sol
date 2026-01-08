@@ -73,10 +73,7 @@ contract ProfitManager {
      * @return amount0 Amount of token0 withdrawn
      * @return amount1 Amount of token1 withdrawn
      */
-    function withdrawProfits(PoolKey calldata poolKey, address lp)
-        external
-        returns (uint256 amount0, uint256 amount1)
-    {
+    function withdrawProfits(PoolKey calldata poolKey, address lp) external returns (uint256 amount0, uint256 amount1) {
         PoolId poolId = poolKey.toId();
 
         amount0 = lpProfits0[poolId][lp];

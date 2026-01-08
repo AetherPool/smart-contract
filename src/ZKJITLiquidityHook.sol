@@ -201,8 +201,9 @@ contract ZKJITLiquidityHook is BaseHook {
         uint256 amount1Desired,
         bool isJITEnabled
     ) external returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) {
-        (liquidity, amount0, amount1) =
-            positionManager.calculateLiquidityForAmounts(key, tickLower, tickUpper, amount0Desired, amount1Desired);
+        (liquidity, amount0, amount1) = positionManager.calculateLiquidityForAmounts(
+            key, tickLower, tickUpper, amount0Desired, amount1Desired
+        );
 
         bytes memory callbackData = abi.encodePacked(
             bytes1(0x01),
@@ -242,10 +243,7 @@ contract ZKJITLiquidityHook is BaseHook {
             bytes1(0x02),
             abi.encode(
                 RemoveLiquidityCallbackData({
-                    poolKey: key,
-                    withdrawer: msg.sender,
-                    tokenId: tokenId,
-                    liquidityDelta: liquidityDelta
+                    poolKey: key, withdrawer: msg.sender, tokenId: tokenId, liquidityDelta: liquidityDelta
                 })
             )
         );

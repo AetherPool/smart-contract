@@ -157,8 +157,8 @@ contract JITCoordinator {
         for (uint256 i = 0; i < cache.allLPs.length; i++) {
             if (_isLPEligible(key, cache.allLPs[i], cache.poolId, cache.currentTick, swapAmount)) {
                 tempEligibleLPs[cache.eligibleCount] = cache.allLPs[i];
-                cache.totalAvailableLiquidity +=
-                    ILPPositionManager(positionManager).getTotalLiquidity(cache.poolId, cache.allLPs[i]);
+                cache.totalAvailableLiquidity += ILPPositionManager(positionManager)
+                    .getTotalLiquidity(cache.poolId, cache.allLPs[i]);
                 cache.eligibleCount++;
             }
         }
@@ -388,9 +388,8 @@ contract JITCoordinator {
             address lp = position.participatingLPs[i];
             uint128 contribution = position.lpContributions[i];
 
-            (uint256 lpFees0, uint256 lpFees1) = IFeeCalculator(feeCalculator).calculateJITFeeShare(
-                position.totalFees0, position.totalFees1, contribution, position.totalLiquidity
-            );
+            (uint256 lpFees0, uint256 lpFees1) = IFeeCalculator(feeCalculator)
+                .calculateJITFeeShare(position.totalFees0, position.totalFees1, contribution, position.totalLiquidity);
 
             if (lpFees0 > 0 || lpFees1 > 0) {
                 IProfitManager(profitManager).accrueProfit(key, lp, lpFees0, lpFees1);
@@ -423,8 +422,8 @@ contract JITCoordinator {
         BalanceDelta delta,
         uint24 appliedFee
     ) private {
-        (uint256 totalFees0, uint256 totalFees1) =
-            IFeeCalculator(feeCalculator).calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
+        (uint256 totalFees0, uint256 totalFees1) = IFeeCalculator(feeCalculator)
+            .calculateSwapFees(key, delta, appliedFee, position.totalLiquidity);
 
         position.totalFees0 = totalFees0;
         position.totalFees1 = totalFees1;
@@ -473,9 +472,8 @@ contract JITCoordinator {
         view
         returns (uint256 lpFees0, uint256 lpFees1)
     {
-        return IFeeCalculator(feeCalculator).calculateJITFeeShare(
-            position.totalFees0, position.totalFees1, contribution, position.totalLiquidity
-        );
+        return IFeeCalculator(feeCalculator)
+            .calculateJITFeeShare(position.totalFees0, position.totalFees1, contribution, position.totalLiquidity);
     }
 
     function _checkAutoHedgeForLP(PoolKey memory key, address lp) private returns (AutoHedgeResult memory result) {

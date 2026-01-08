@@ -9,9 +9,7 @@ interface IProfitManager {
         view
         returns (uint256 profits0, uint256 profits1);
 
-    function withdrawProfits(PoolKey calldata poolKey, address lp)
-        external
-        returns (uint256 amount0, uint256 amount1);
+    function withdrawProfits(PoolKey calldata poolKey, address lp) external returns (uint256 amount0, uint256 amount1);
 
     function checkAndExecuteAutoHedge(PoolKey calldata poolKey, address lp)
         external

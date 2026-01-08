@@ -221,14 +221,15 @@ contract SimpleMVPTest is Test, Deployers, CoFheTest {
             _getBalancedAmounts(-887220, 887220, desiredAmount0, desiredAmount1);
 
         // Add liquidity
-        (uint256 tokenId,, uint256 actual0, uint256 actual1) = hook.depositLiquidityWithAmounts(
-            key,
-            -887220, // Full range
-            887220,
-            amount0,
-            amount1,
-            false // Passive LP
-        );
+        (uint256 tokenId,, uint256 actual0, uint256 actual1) =
+            hook.depositLiquidityWithAmounts(
+                key,
+                -887220, // Full range
+                887220,
+                amount0,
+                amount1,
+                false // Passive LP
+            );
 
         vm.stopPrank();
 
